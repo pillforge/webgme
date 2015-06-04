@@ -373,6 +373,20 @@ define([], function () {
             }
 
             msg = msg || 'makePointer(' + id + ',' + name + ',' + to + ')';
+
+            // create children of interface definition
+            if (name === 'interface') {
+                var to_node = _clientGlobal.nodes[to].node;
+                var children = _clientGlobal.core.getChildrenPaths(to_node);
+                children.forEach(function (child) {
+                    _clientGlobal.nodeSetter.createChild({
+                        parentId: id,
+                        baseId: child
+                    });
+                    msg += ' - addchild: ' + child;
+                });
+            }
+
             _clientGlobal.functions.saveRoot(msg);
         }
 
