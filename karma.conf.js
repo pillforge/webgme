@@ -43,7 +43,8 @@ var testFixture = require('./test/_globals.js'),
         {name: 'pluginProject', path: './test-karma/client/js/client/pluginProject.json'},
         {name: 'watcherDelete', path: './test-karma/client/js/client/pluginProject.json'},
         {name: 'watcherCreate', path: './test-karma/client/js/client/pluginProject.json'},
-        {name: 'branchWatcher', path: './test-karma/client/js/client/pluginProject.json'}
+        {name: 'branchWatcher', path: './test-karma/client/js/client/pluginProject.json'},
+        {name: 'branchStatus', path: './test-karma/client/js/client/pluginProject.json'}
     ];
 
 (function initializeServer() {
@@ -136,6 +137,8 @@ module.exports = function (config) {
         // list of files / patterns to load in the browser
         files: [
             {pattern: 'src/**/*.js', included: false},
+            {pattern: 'utils/build/empty/empty.js', included: false},
+            {pattern: 'test/plugin/scenarios/plugins/**/*.js', included: false},
             {pattern: 'seeds/*.json', included: false}, //seeds
             {pattern: 'test-karma/**/*.spec.js', included: false},
             {pattern: 'test-karma/**/*.inc.js', included: false}, //test include scripts
