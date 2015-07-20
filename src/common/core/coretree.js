@@ -31,20 +31,20 @@ define([
         return '' + relid;
     };
 
-    // make relids deterministic
-    if (false) {
-        var nextRelid = 0;
-        createRelid = function (data) {
-            ASSERT(data && typeof data === 'object');
-
-            var relid;
-            do {
-                relid = (nextRelid += -1);
-            } while (data[relid] !== undefined);
-
-            return '' + relid;
-        };
-    }
+    //// make relids deterministic
+    //if (false) {
+    //    var nextRelid = 0;
+    //    createRelid = function (data) {
+    //        ASSERT(data && typeof data === 'object');
+    //
+    //        var relid;
+    //        do {
+    //            relid = (nextRelid += -1);
+    //        } while (data[relid] !== undefined);
+    //
+    //        return '' + relid;
+    //    };
+    //}
 
     var rootCounter = 0;
 
@@ -500,7 +500,9 @@ define([
             }
 
             if (node.parent !== null) {
-                ASSERT(__areEquivalent(__getChildData(node.parent.data, node.relid), node.data));
+                //inherited child doesn't have an entry in the parent as long as it has not been modified
+                ASSERT(node.parent.data[node.relid] === undefined ||
+                    __areEquivalent(__getChildData(node.parent.data, node.relid), node.data));
                 node.parent.data[node.relid] = copy;
             }
 

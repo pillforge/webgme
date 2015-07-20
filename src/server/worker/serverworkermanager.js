@@ -1,6 +1,7 @@
 /*globals requireJS*/
 /*jshint node: true*/
 /**
+ * @module Server:ServerWorkerManager
  * @author kecso / https://github.com/kecso
  */
 'use strict';
@@ -183,9 +184,6 @@ function ServerWorkerManager(_parameters) {
                     //the worker have been initialized so we have to try to assign it right away
                     worker.state = CONSTANTS.workerStates.free;
                     //assignRequest(msg.pid);
-                    break;
-                case CONSTANTS.msgTypes.info:
-                    logger.debug(msg.info);
                     break;
                 case CONSTANTS.msgTypes.query:
                     cFunction = worker.cb;
