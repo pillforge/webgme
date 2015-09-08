@@ -50,8 +50,24 @@ function assertBoolean(name, value, orFalsy) {
 
 function assertArray(name, value) {
     'use strict';
-    if (value instanceof Array == false) {
+    if (value instanceof Array === false) {
         throwTypeMiss(name, value, 'array');
+    }
+}
+
+function assertEnum(name, value) {
+    'use strict';
+    var validValues = Array.prototype.slice.call(arguments).splice(2),
+        msg;
+
+    if (validValues.indexOf(value) === -1) {
+        if (configFileName) {
+            msg = 'In ' + configFileName;
+        } else {
+            msg = 'In configuration';
+        }
+        msg += ': ' + name + ' must be one of: ' + validValues.toString() + '. Got: "' + value + '".';
+        throw new Error(msg);
     }
 }
 
@@ -109,6 +125,8 @@ function validateConfig(configOrFileName) {
     assertString('config.client.defaultProject.name', config.client.defaultProject.name, true);
     assertString('config.client.defaultProject.branch', config.client.defaultProject.name, true);
     assertString('config.client.defaultProject.node', config.client.defaultProject.name, true);
+    assertEnum('config.client.defaultConnectionRouter', config.client.defaultConnectionRouter,
+        'basic', 'basic2', 'basic3');
 
     // debug
     expectedKeys.push('debug');
@@ -176,17 +194,17 @@ function validateConfig(configOrFileName) {
     // socketIO
     expectedKeys.push('socketIO');
     assertObject('config.socketIO', config.socketIO);
-    assertArray('config.socketIO.transports', config.socketIO.transports);
 
     // storage
     expectedKeys.push('storage');
     assertObject('config.storage', config.storage);
     assertBoolean('config.storage.autoPersist', config.storage.autoPersist);
     assertBoolean('config.storage.broadcastProjectEvents', config.storage.broadcastProjectEvents);
+    assertBoolean('config.storage.emitCommittedCoreObjects', config.storage.emitCommittedCoreObjects);
     assertNumber('config.storage.cache', config.storage.cache);
     assertNumber('config.storage.loadBucketSize', config.storage.loadBucketSize);
     assertNumber('config.storage.loadBucketTimer', config.storage.loadBucketTimer);
-    assertString('config.storage.keyType', config.storage.keyType);
+    assertEnum('config.storage.keyType', config.storage.keyType, 'rand160Bits', 'ZSSHA', 'plainSHA1');
 
     //visualization
     expectedKeys.push('visualization');

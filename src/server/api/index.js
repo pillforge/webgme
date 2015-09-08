@@ -20,12 +20,9 @@ function createAPI(app, mountPath, middlewareOpts) {
         router = express.Router(),
 
         Q = require('q'),
-        aglio = require('aglio'),// used to generate API docs from blue print Readme.md
         htmlDoc,
         htmlDocDeferred = Q.defer(),
-        fs = require('fs'),
-        blueprint = fs.readFileSync(__dirname + '/Readme.md', {encoding: 'utf8'}),
-        template = 'default',
+        path = require('path'),
         apiDocumentationMountPoint = '/developer/api',
 
         logger = middlewareOpts.logger.fork('api'),
@@ -33,31 +30,32 @@ function createAPI(app, mountPath, middlewareOpts) {
         safeStorage = middlewareOpts.safeStorage,
         ensureAuthenticated = middlewareOpts.ensureAuthenticated,
         webgme = require('../../../webgme'),
-        ServerUserProject = require('../storage/userproject'),
         merge = webgme.requirejs('common/core/users/merge'),
         StorageUtil = webgme.requirejs('common/storage/util'),
 
         versionedAPIPath = mountPath + '/v1',
-        latestAPIPath = mountPath;
+        latestAPIPath = mountPath,
+
+        raml2html,
+        configWithDefaultTemplates;
 
     if (global.TESTING) {
         htmlDocDeferred.resolve();
     } else {
         // FIXME: this does not work with tests well.
-        // generate api documentation based on blueprint when server starts
-        aglio.render(blueprint, template, function (err, html, warnings) {
-            if (err) {
-                logger.error(err);
-                htmlDocDeferred.reject(err);
-                return;
-            }
-            if (warnings && warnings.length) {
-                logger.warn('aglio', {metadata: warnings});
-            }
+        // generate api documentation based on raml file when server starts
+        raml2html = require('raml2html');
+        configWithDefaultTemplates = raml2html.getDefaultConfig();
+        //var configWithCustomTemplates = raml2html.getDefaultConfig('my-custom-template.nunjucks', __dirname);
 
-            htmlDoc = html;
-            logger.debug('html doc is ready: ' + apiDocumentationMountPoint);
+        // source can either be a filename, url, file contents (string) or parsed RAML object
+        raml2html.render(path.join(__dirname, 'webgme-api.raml'), configWithDefaultTemplates).then(function (result) {
+            // Save the result to a file or do something else with the result
+            htmlDoc = result;
             htmlDocDeferred.resolve();
+        }, function (error) {
+            // Output error
+            htmlDocDeferred.reject(error);
         });
     }
 
@@ -363,6 +361,167 @@ function createAPI(app, mountPath, middlewareOpts) {
 
     });
 
+    //ORGANIZATIONS
+    function ensureOrgOrSiteAdmin(req, res) {
+        //TODO: Could this be handled like ensureAuthenticated?
+        var userId = getUserId(req),
+            userData;
+
+        return gmeAuth.getUser(userId)
+            .then(function (data) {
+                userData = data;
+                return gmeAuth.getAdminsInOrganization(req.params.orgId);
+            })
+            .then(function (admins) {
+                if (!userData.siteAdmin && admins.indexOf(userId) === -1) {
+                    res.status(403);
+                    throw new Error('site admin role or organization admin is required for this operation');
+                }
+            });
+    }
+
+    router.get('/orgs', function (req, res, next) {
+        gmeAuth.listOrganizations(null)
+            .then(function (data) {
+                res.json(data);
+            })
+            .catch(function (err) {
+                next(err);
+            });
+    });
+
+    router.put('/orgs/:orgId', function (req, res, next) {
+
+        var userId = getUserId(req);
+
+        gmeAuth.getUser(userId)
+            .then(function (data) {
+                if (!(data.siteAdmin || data.canCreate)) {
+                    res.status(403);
+                    throw new Error('site admin role or can create is required for this operation');
+                }
+
+                return gmeAuth.addOrganization(req.params.orgId, req.body.info);
+            })
+            .then(function () {
+                return gmeAuth.setAdminForUserInOrganization(userId, req.params.orgId, true);
+            })
+            .then(function () {
+                return gmeAuth.addUserToOrganization(userId, req.params.orgId);
+            })
+            .then(function () {
+                return gmeAuth.getOrganization(req.params.orgId);
+            })
+            .then(function (orgData) {
+                res.json(orgData);
+            })
+            .catch(function (err) {
+                next(err);
+            });
+    });
+
+    router.get('/orgs/:orgId', function (req, res, next) {
+        gmeAuth.getOrganization(req.params.orgId)
+            .then(function (data) {
+                res.json(data);
+            })
+            .catch(function (err) {
+                err = new Error(err);
+                if (err.message.indexOf('No such organization [') > -1) {
+                    res.status(404);
+                }
+                next(err);
+            });
+    });
+
+    router.delete('/orgs/:orgId', function (req, res, next) {
+        ensureOrgOrSiteAdmin(req, res)
+            .then(function () {
+                return gmeAuth.removeOrganizationByOrgId(req.params.orgId);
+            })
+            .then(function () {
+                res.sendStatus(204);
+            })
+            .catch(function (err) {
+                err = new Error(err);
+                if (err.message.indexOf('No such organization [') > -1) {
+                    res.status(404);
+                }
+                next(err);
+            });
+    });
+
+    router.put('/orgs/:orgId/users/:username', function (req, res, next) {
+        ensureOrgOrSiteAdmin(req, res)
+            .then(function () {
+                return gmeAuth.addUserToOrganization(req.params.username, req.params.orgId);
+            })
+            .then(function () {
+                res.sendStatus(204);
+            })
+            .catch(function (err) {
+                err = new Error(err);
+                if (err.message.indexOf('No such organization [') > -1 ||
+                    err.message.indexOf('No such user [') > -1) {
+                    res.status(404);
+                }
+                next(err);
+            });
+    });
+
+    router.delete('/orgs/:orgId/users/:username', function (req, res, next) {
+        ensureOrgOrSiteAdmin(req, res)
+            .then(function () {
+                return gmeAuth.removeUserFromOrganization(req.params.username, req.params.orgId);
+            })
+            .then(function () {
+                res.sendStatus(204);
+            })
+            .catch(function (err) {
+                err = new Error(err);
+                if (err.message.indexOf('No such organization [') > -1) {
+                    res.status(404);
+                }
+                next(err);
+            });
+    });
+
+    router.put('/orgs/:orgId/admins/:username', function (req, res, next) {
+        ensureOrgOrSiteAdmin(req, res)
+            .then(function () {
+                return gmeAuth.setAdminForUserInOrganization(req.params.username, req.params.orgId, true);
+            })
+            .then(function () {
+                res.sendStatus(204);
+            })
+            .catch(function (err) {
+                err = new Error(err);
+                if (err.message.indexOf('No such organization [') > -1 ||
+                    err.message.indexOf('No such user [') > -1) {
+                    res.status(404);
+                }
+                next(err);
+            });
+    });
+
+    router.delete('/orgs/:orgId/admins/:username', function (req, res, next) {
+        ensureOrgOrSiteAdmin(req, res)
+            .then(function () {
+                return gmeAuth.setAdminForUserInOrganization(req.params.username, req.params.orgId, false);
+            })
+            .then(function () {
+                res.sendStatus(204);
+            })
+            .catch(function (err) {
+                err = new Error(err);
+                if (err.message.indexOf('No such organization [') > -1 ||
+                    err.message.indexOf('No such user [') > -1) {
+                    res.status(404);
+                }
+                next(err);
+            });
+    });
+
     // AUTHENTICATED
     //router.get('/user/orgs', ensureAuthenticated, function (req, res) {
     //
@@ -415,6 +574,36 @@ function createAPI(app, mountPath, middlewareOpts) {
     });
 
 
+    /**
+     * Creating project by seed
+     * Available body parameters:
+     * type {string} - sets if the seed is coming from file (==='file') source or from some existing project(==='db') [mandatory]
+     * seedName {string} - the name of the seed (in case of db, it has to be the complete id of the project) [mandatory]
+     * seedBranch {string} - in case of db seed, it is possible to give the name of the source branch [default=master]
+     *
+     * @example {type:'file',seedName:'EmptyProject'}
+     * @example {type:'db',seedName:'me+myOldProject',seedBranch:'release'}
+     */
+    router.put('/projects/:ownerId/:projectName', function (req, res, next) {
+        var userId = getUserId(req),
+            command = req.body;
+        command.command = 'seedProject';
+        command.userId = userId;
+        command.webGMESessionId = req.session.id;
+        command.ownerId = req.params.ownerId;
+        command.projectName = req.params.projectName;
+
+        req.session.save(); //TODO why do we have to save manually
+
+        Q.nfcall(middlewareOpts.workerManager.request, command)
+            .then(function () {
+                res.sendStatus(204);
+            })
+            .catch(function (err) {
+                next(new Error(err));
+            }); //TODO do we need special error handling???
+    });
+
     router.delete('/projects/:ownerId/:projectName', function (req, res, next) {
         var userId = getUserId(req),
             data = {
@@ -464,14 +653,10 @@ function createAPI(app, mountPath, middlewareOpts) {
 
 
             safeStorage.openProject(data)
-                .then(function (dbProject) {
-                    var serverUserProject = new ServerUserProject(dbProject,
-                        safeStorage,
-                        loggerCompare,
-                        middlewareOpts.gmeConfig);
+                .then(function (project) {
 
                     return merge.diff({
-                        project: serverUserProject,
+                        project: project,
                         branchOrCommitA: req.params.branchOrCommitA,
                         branchOrCommitB: req.params.branchOrCommitB,
                         logger: loggerCompare,

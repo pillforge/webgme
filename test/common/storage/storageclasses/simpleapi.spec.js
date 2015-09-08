@@ -33,6 +33,7 @@ describe('storage storageclasses simpleapi', function () {
         projectNameCreate = 'SimpleAPICreateProject',
         projectNameCreate2 = 'SimpleAPICreateProject2',
         projectNameDelete = 'SimpleAPIDeleteProject',
+        projectNameTransfer = 'SimpleAPIProjectNameTransfer',
         importResult,
         originalHash,
         commitHash1,
@@ -52,19 +53,20 @@ describe('storage storageclasses simpleapi', function () {
             testFixture.clearDBAndGetGMEAuth(gmeConfig, [projectName, projectNameCreate, projectNameCreate2, projectNameDelete])
                 .then(function (gmeAuth_) {
                     gmeAuth = gmeAuth_;
+                    return gmeAuth.addOrganization('orgId');
+                })
+                .then(function () {
+                    return gmeAuth.addUserToOrganization(gmeConfig.authentication.guestAccount, 'orgId');
+                })
+                .then(function () {
+                    return gmeAuth.setAdminForUserInOrganization(gmeConfig.authentication.guestAccount, 'orgId', true);
+                })
+                .then(function () {
                     safeStorage = testFixture.getMongoStorage(logger, gmeConfig, gmeAuth);
                     return safeStorage.openDatabase();
                 })
                 .then(function () {
-                    return Q.allSettled([
-                        safeStorage.deleteProject({projectId: projectName2Id(projectName)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameCreate)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameCreate2)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameDelete)})
-                    ]);
-                })
-                .then(function () {
-                    return Q.allSettled([
+                    return Q.allDone([
                         testFixture.importProject(safeStorage, {
                             projectSeed: 'seeds/EmptyProject.json',
                             projectName: projectName,
@@ -74,7 +76,7 @@ describe('storage storageclasses simpleapi', function () {
                     ]);
                 })
                 .then(function (results) {
-                    importResult = results[0].value; // projectName
+                    importResult = results[0]; // projectName
                     originalHash = importResult.commitHash;
 
                     commitObject = importResult.project.createCommitObject([originalHash],
@@ -118,7 +120,7 @@ describe('storage storageclasses simpleapi', function () {
                 return;
             }
 
-            Q.allSettled([
+            Q.allDone([
                 gmeAuth.unload(),
                 safeStorage.closeDatabase()
             ])
@@ -237,6 +239,30 @@ describe('storage storageclasses simpleapi', function () {
             .nodeify(done);
     });
 
+    it('should createProject and transferProject', function (done) {
+        var newOwner = 'orgId';
+        Q.ninvoke(storage, 'createProject', projectNameTransfer)
+            .then(function (projectId) {
+                return Q.ninvoke(storage, 'transferProject', projectId, newOwner);
+            })
+            .then(function (newProjectId) {
+                expect(newProjectId).to.equal(testFixture.storageUtil.getProjectIdFromOwnerIdAndProjectName(newOwner,
+                    projectNameTransfer));
+            })
+            .nodeify(done);
+    });
+
+    it('should fail to transferProject when it does not exist', function (done) {
+        Q.ninvoke(storage, 'transferProject', 'doesNotExist', 'someOwnerId')
+            .then(function () {
+                throw new Error('Should have failed!');
+            })
+            .catch(function (err) {
+                expect(err.message).to.contain('Not authorized to delete project: doesNotExist');
+            })
+            .nodeify(done);
+    });
+
     it('should setBranchHash', function (done) {
         Q.ninvoke(storage, 'setBranchHash', projectName2Id(projectName), 'newBranch', importResult.commitHash, '')
             .then(function (result) {
@@ -267,14 +293,11 @@ describe('storage storageclasses simpleapi', function () {
         };
 
         Q.ninvoke(storage, 'simpleRequest', command)
-            .then(function (resultId) {
-                expect(typeof resultId).to.equal('string');
-                expect(resultId).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-                    'should be an id');
-                return Q.ninvoke(storage, 'simpleResult', resultId);
-            })
             .then(function (result) {
-                expect(result).to.have.property('root');
+                expect(typeof result).to.equal('object');
+                expect(result).to.have.property('file');
+                expect(typeof result.file.hash).to.equal('string');
+                expect(result.file.url).to.include('http');
                 done();
             })
             .catch(function (err) {
@@ -282,4 +305,15 @@ describe('storage storageclasses simpleapi', function () {
             });
     });
 
+    it('should fail to execute simpleQuery without addOn configured', function (done) {
+        Q.ninvoke(storage, 'simpleQuery', 'someWorkerId', {})
+            .then(function () {
+                done(new Error('missing error handling'));
+            })
+            .catch(function (err) {
+                expect(err.message).to.include('wrong request');
+                done();
+            })
+            .done();
+    });
 });

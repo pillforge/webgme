@@ -7,6 +7,9 @@
  * that is loaded when the bucket is full (gmeConfig.storage.loadBucketSize) or when a
  * timeout is triggered (gmeConfig.storage.loadBucketTimer).
  *
+ * N.B. when used directly, the user need to make sure that the same object (by hash) is not loaded within in the
+ * same bucket, (see the project-cache for example).
+ *
  * @author pmeijer / https://github.com/pmeijer
  */
 
@@ -84,7 +87,7 @@ define(['common/storage/storageclasses/simpleapi'], function (SimpleAPI) {
                     hashedObjects[i].cb(err);
                 } else if (typeof result[hashedObjects[i].hash] === 'string') {
                     self.logger.error(result[hashedObjects[i].hash]);
-                    hashedObjects[i].cb(result[hashedObjects[i].hash]);
+                    hashedObjects[i].cb(new Error(result[hashedObjects[i].hash]));
                 } else {
                     hashedObjects[i].cb(err, result[hashedObjects[i].hash]);
                 }

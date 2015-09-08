@@ -79,6 +79,19 @@ define(['js/logger',
                                     }
                                 );
                                 return;
+                            } else {
+                                do {
+                                    if (baseNode.getId() === targetId) {
+                                        dialog.alert('Invalid base modification',
+                                            'Change of base node would create circular inheritance!',
+                                            function () {
+
+                                            }
+                                        );
+                                        return;
+                                    }
+                                    baseNode = self._client.getNode(baseNode.getBaseId());
+                                } while (baseNode);
                             }
 
                             dialog.confirm('Confirm base change',
@@ -87,7 +100,19 @@ define(['js/logger',
                                     self._onCreateNewConnection(params);
                                 }
                             );
+                        } else if (!oldBaseNode) {
+                            dialog.alert('Invalid base modification',
+                                'Cannot change the base of the FCO!',
+                                function () {
+                                }
+                            );
                         }
+                    } else {
+                        dialog.alert('Invalid base modification',
+                            'Base already set to the new base!',
+                            function () {
+                            }
+                        );
                     }
                 }
                 return;
@@ -678,11 +703,12 @@ define(['js/logger',
     };
 
     MetaEditorControlDiagramDesignerWidgetEventHandlers.prototype._onSelectedTabChanged = function (tabID) {
-        if (this._sheets[tabID] && this._selectedMetaAspectSet !== this._sheets[tabID]) {
+        if (this._sheets && tabID && this._selectedMetaAspectSet !== this._sheets[tabID]) {
             this._selectedMetaAspectSet = this._sheets[tabID];
 
             this.logger.debug('selectedAspectChanged: ' + this._selectedMetaAspectSet);
 
+            WebGMEGlobal.State.set(CONSTANTS.STATE_ACTIVE_TAB, tabID);
             this._initializeSelectedSheet();
         }
     };
@@ -807,11 +833,15 @@ define(['js/logger',
             metaAspectSheetsRegistry = aspectNode.getEditableRegistry(REGISTRY_KEYS.META_SHEETS) || [],
             i,
             j,
+            urlTab = WebGMEGlobal.State.getActiveTab(),
             setID;
 
         for (i = 0; i < newTabIDOrder.length; i += 1) {
             //i is the new order number
             //newTabIDOrder[i] is the sheet identifier
+            if (urlTab === newTabIDOrder[i]) {
+                WebGMEGlobal.State.set(CONSTANTS.STATE_ACTIVE_TAB, i);
+            }
             setID = this._sheets[newTabIDOrder[i]];
             for (j = 0; j < metaAspectSheetsRegistry.length; j += 1) {
                 if (metaAspectSheetsRegistry[j].SetID === setID) {
@@ -829,9 +859,7 @@ define(['js/logger',
             }
         });
 
-        this._client.startTransaction();
         this._client.setRegistry(aspectNodeID, REGISTRY_KEYS.META_SHEETS, metaAspectSheetsRegistry);
-        this._client.completeTransaction();
     };
 
 

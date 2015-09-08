@@ -10,7 +10,6 @@ describe('storage storageclasses editorstorage', function () {
     'use strict';
     var NodeStorage = testFixture.requirejs('common/storage/nodestorage'),
         STORAGE_CONSTANTS = testFixture.requirejs('common/storage/constants'),
-        ProjectInterface = testFixture.requirejs('common/storage/project/interface'),
         gmeConfig = testFixture.getGmeConfig(),
         WebGME = testFixture.WebGME,
         openSocketIo = testFixture.openSocketIo,
@@ -54,12 +53,7 @@ describe('storage storageclasses editorstorage', function () {
                     return safeStorage.openDatabase();
                 })
                 .then(function () {
-                    return Q.allSettled([
-                        safeStorage.deleteProject({projectId: projectName2Id(projectName)})
-                    ]);
-                })
-                .then(function () {
-                    return Q.allSettled([
+                    return Q.allDone([
                         testFixture.importProject(safeStorage, {
                             projectSeed: 'seeds/EmptyProject.json',
                             projectName: projectName,
@@ -69,7 +63,7 @@ describe('storage storageclasses editorstorage', function () {
                     ]);
                 })
                 .then(function (results) {
-                    importResult = results[0].value; // projectName
+                    importResult = results[0]; // projectName
                     originalHash = importResult.commitHash;
 
                     commitObject = importResult.project.createCommitObject([originalHash],
@@ -113,7 +107,7 @@ describe('storage storageclasses editorstorage', function () {
                 return;
             }
 
-            Q.allSettled([
+            Q.allDone([
                 gmeAuth.unload(),
                 safeStorage.closeDatabase()
             ])
@@ -145,17 +139,19 @@ describe('storage storageclasses editorstorage', function () {
         storage.close(done);
     });
 
-    function makeCommitPromise(project, branchName, parents, rootHash, coreObjects, msg) {
+    function makeCommitPromise(storage, projectId, branchName, parents, rootHash, coreObjects, msg) {
         var deferred = Q.defer(),
             synchronousData; // This is not returned here...
 
-        synchronousData = project.makeCommit(branchName, parents, rootHash, coreObjects, msg, function (err, result) {
-            if (err) {
-                deferred.reject(err);
-            } else {
-                deferred.resolve(result);
+        synchronousData = storage.makeCommit(projectId, branchName, parents, rootHash, coreObjects, msg,
+            function (err, result) {
+                if (err) {
+                    deferred.reject(err);
+                } else {
+                    deferred.resolve(result);
+                }
             }
-        });
+        );
 
         return deferred.promise;
     }
@@ -187,14 +183,15 @@ describe('storage storageclasses editorstorage', function () {
                 branches = result[1];
                 access = result[2];
 
-                function updateHandler() {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
 
                 }
-                function commitHandler() {
 
-                }
-
-                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master', updateHandler, commitHandler);
+                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master',
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 return Q.ninvoke(storage, 'forkBranch', projectName2Id(projectName), 'master', 'forkName', null);
@@ -216,17 +213,19 @@ describe('storage storageclasses editorstorage', function () {
                 branches = result[1];
                 access = result[2];
 
-                return Q.ninvoke(storage, 'makeCommit', projectName2Id(projectName), null, [importResult.commitHash], importResult.rootHash, {}, 'new commit');
+                return Q.ninvoke(storage, 'makeCommit', projectName2Id(projectName), null, [importResult.commitHash],
+                    importResult.rootHash, {}, 'new commit');
             })
             .then(function () {
-                function updateHandler() {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
 
                 }
-                function commitHandler() {
 
-                }
-
-                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master', updateHandler, commitHandler);
+                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master',
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 return Q.ninvoke(storage, 'forkBranch', projectName2Id(projectName), 'master', 'commit_and_fork', null);
@@ -249,7 +248,8 @@ describe('storage storageclasses editorstorage', function () {
                 branches = result[1];
                 access = result[2];
 
-                return Q.ninvoke(storage, 'makeCommit', projectName2Id(projectName), null, [importResult.commitHash], importResult.rootHash, {}, 'new commit');
+                return Q.ninvoke(storage, 'makeCommit', projectName2Id(projectName), null, [importResult.commitHash],
+                    importResult.rootHash, {}, 'new commit');
             })
             .then(function (result) {
                 expect(typeof result.hash).to.equal('string');
@@ -257,11 +257,11 @@ describe('storage storageclasses editorstorage', function () {
             .nodeify(done);
     });
 
-    it('should makeCommit in a branch', function (done) {
+    it('should makeCommit in a branch passing a new rootObject', function (done) {
         var project,
             branches,
             access,
-            forkName = 'makeCommit_fork';
+            forkName = 'makeCommit_fork_new_root';
 
         Q.nfcall(storage.openProject, projectName2Id(projectName))
             .then(function (result) {
@@ -269,38 +269,140 @@ describe('storage storageclasses editorstorage', function () {
                 branches = result[1];
                 access = result[2];
 
-                function updateHandler() {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
 
                 }
-                function commitHandler() {
 
-                }
-
-                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master', updateHandler, commitHandler);
+                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master',
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 return Q.ninvoke(storage, 'forkBranch', projectName2Id(projectName), 'master', forkName, null);
             })
             .then(function () {
-                function updateHandler() {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
                 }
-                function commitHandler() {
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
                 }
 
-                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), forkName, updateHandler, commitHandler);
+                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), forkName,
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 var persisted;
-                importResult.core.setAttribute(importResult.rootNode, 'name', 'New name'); // FIXME: Bogus modification to get makeCommit working.
+                importResult.core.setAttribute(importResult.rootNode, 'name', 'New name');
                 persisted = importResult.core.persist(importResult.rootNode);
-                return Q.ninvoke(storage, 'makeCommit', projectName2Id(projectName), forkName, [importResult.commitHash], persisted.rootHash, persisted.objects, 'new commit');
+                return makeCommitPromise(storage, projectName2Id(projectName), forkName,
+                    [importResult.commitHash], importResult.rootHash, {}, 'new commit');
             })
             .then(function (result) {
                 expect(typeof result.hash).to.equal('string');
+                expect(result.status).to.equal(STORAGE_CONSTANTS.SYNCED);
             })
             .nodeify(done);
     });
 
+    it('should makeCommit in a branch referring to an existing rootObject', function (done) {
+        var project,
+            branches,
+            access,
+            forkName = 'makeCommit_fork_same_root';
+
+        Q.nfcall(storage.openProject, projectName2Id(projectName))
+            .then(function (result) {
+                project = result[0];
+                branches = result[1];
+                access = result[2];
+
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
+                }
+
+                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master',
+                    hashUpdateHandler, branchStatusHandler);
+            })
+            .then(function () {
+                return Q.ninvoke(storage, 'forkBranch', projectName2Id(projectName), 'master', forkName, null);
+            })
+            .then(function () {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
+                }
+
+                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), forkName,
+                    hashUpdateHandler, branchStatusHandler);
+            })
+            .then(function () {
+                return makeCommitPromise(storage, projectName2Id(projectName), forkName,
+                    [importResult.commitHash], importResult.rootHash, {}, 'new commit');
+            })
+            .then(function (result) {
+                expect(typeof result.hash).to.equal('string');
+                expect(result.status).to.equal(STORAGE_CONSTANTS.SYNCED);
+            })
+            .nodeify(done);
+    });
+
+    it('makeCommit should failed in a branch referring to a non-existing rootObject', function (done) {
+        var project,
+            branches,
+            access,
+            forkName = 'makeCommit_fork_fail';
+
+        Q.nfcall(storage.openProject, projectName2Id(projectName))
+            .then(function (result) {
+                project = result[0];
+                branches = result[1];
+                access = result[2];
+
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
+                }
+
+                return Q.nfcall(storage.openBranch, projectName2Id(projectName), 'master',
+                    hashUpdateHandler, branchStatusHandler);
+            })
+            .then(function () {
+                return Q.ninvoke(storage, 'forkBranch', projectName2Id(projectName), 'master', forkName, null);
+            })
+            .then(function () {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
+                }
+
+                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), forkName,
+                    hashUpdateHandler, branchStatusHandler);
+            })
+            .then(function () {
+                return makeCommitPromise(storage, projectName2Id(projectName), forkName,
+                    [importResult.commitHash], '#doesNotExist', {}, 'new commit');
+            })
+            .then(function () {
+                done(new Error('Should have failed when makeCommit refers to non-existing root-object.'));
+            })
+            .catch(function (err) {
+                expect(err.message).to.include('Failed loading referred rootObject');
+                done();
+            })
+            .done();
+    });
 
     it('should pull changes if another client changes the branch', function (done) {
         var project,
@@ -308,6 +410,7 @@ describe('storage storageclasses editorstorage', function () {
             access,
             storageOther,
             newCommitHash,
+            openingBranch = true,
             updateReceivedDeferred = Q.defer(),
             forkName = 'pullChanges_fork';
 
@@ -317,30 +420,39 @@ describe('storage storageclasses editorstorage', function () {
                 branches = result[1];
                 access = result[2];
 
-                function updateHandler(commits) {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
                 }
-                function commitHandler() {
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
                 }
 
-                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), 'master', updateHandler, commitHandler);
+                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), 'master',
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 return Q.ninvoke(storage, 'forkBranch', projectName2Id(projectName), 'master', forkName, null);
             })
             .then(function () {
-                function updateHandler(commits) {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
                     // TRICKY: new commit hash will be set later by the storageOther user. We are waiting for the update
                     // from the original storage.
                     // return with a single commit object
-                    updateReceivedDeferred.resolve(commits[0]);
+                    callback(null, true);
+                    if (openingBranch === false) {
+                        updateReceivedDeferred.resolve(data.commitData);
+                    }
                 }
-                function commitHandler() {
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
+
                 }
 
-                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), forkName, updateHandler, commitHandler);
+                return Q.ninvoke(storage, 'openBranch', projectName2Id(projectName), forkName,
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 var deferred = Q.defer();
+                openingBranch = false;
 
                 storageOther = NodeStorage.createStorage('127.0.0.1', /*server.getUrl()*/
                     webGMESessionId,
@@ -360,20 +472,22 @@ describe('storage storageclasses editorstorage', function () {
                 return Q.nfcall(storageOther.openProject, projectName2Id(projectName));
             })
             .then(function () {
-                function updateHandler() {
+                function hashUpdateHandler(data, commitQueue, updateQueue, callback) {
+                    callback(null, true);
+                }
+                function branchStatusHandler(/*branchStatus, commitQueue, updateQueue*/) {
 
                 }
-                function commitHandler() {
 
-                }
-
-                return Q.ninvoke(storageOther, 'openBranch', projectName2Id(projectName), forkName, updateHandler, commitHandler);
+                return Q.ninvoke(storageOther, 'openBranch', projectName2Id(projectName), forkName,
+                    hashUpdateHandler, branchStatusHandler);
             })
             .then(function () {
                 var persisted;
                 importResult.core.setAttribute(importResult.rootNode, 'name', 'New name'); // FIXME: Bogus modification to get makeCommit working.
                 persisted = importResult.core.persist(importResult.rootNode);
-                return Q.ninvoke(storageOther, 'makeCommit', projectName2Id(projectName), forkName, [importResult.commitHash], persisted.rootHash, persisted.objects, 'new commit');
+                return Q.ninvoke(storageOther, 'makeCommit', projectName2Id(projectName), forkName,
+                    [importResult.commitHash], persisted.rootHash, persisted.objects, 'new commit');
             })
             .then(function (result) {
                 newCommitHash = result.hash;

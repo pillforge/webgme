@@ -190,7 +190,6 @@ describe('GME client', function () {
                 'validateModelAsync',
                 'validateNodeAsync',
                 'setValidationCallback',
-                'getDetailedHistoryAsync',
                 'getRunningAddOnNames',
                 'addOnsAllowed'
             );
@@ -590,7 +589,7 @@ describe('GME client', function () {
         it('should fail to create an already existing project', function (done) {
             var projectName = 'alreadyExists';
             client.createProject(projectName, function (err) {
-                expect(err).to.contain('Project already exist');
+                expect(err.message).to.contain('Project already exist');
                 done();
             });
         });
@@ -686,7 +685,7 @@ describe('GME client', function () {
                 expect(err).to.equal(null);
 
                 client.selectCommit('#unknown', function (err) {
-                    expect(err).to.equal('object does not exist #unknown');
+                    expect(err.message).to.include('object does not exist #unknown');
 
                     done();
                 });
@@ -898,28 +897,26 @@ describe('GME client', function () {
                 expect(err).to.equal(null);
 
                 actualProject = client.getActiveProjectId();
-
                 expect(actualProject).to.equal(projectId);
-                client.deleteProject(genericProjectId, function (err) {
+
+                client.getBranches(genericProjectId, function (err, branches) {
                     expect(err).to.equal(null);
-                    client.createProject(genericProjectName, function (err) {
+                    expect(branches.master).to.include('#');
+
+                    client.createBranch(genericProjectId, 'genericBranch', branches.master, function (err) {
                         expect(err).to.equal(null);
 
-                        client.createBranch(genericProjectId, 'genericBranch', '#424242', function (err) {
+                        client.getProjectsAndBranches(true, function (err, info) {
                             expect(err).to.equal(null);
 
-                            client.getProjectsAndBranches(true, function (err, info) {
-                                expect(err).to.equal(null);
+                            expect(client.getActiveProjectId()).to.equal(actualProject);
+                            expect(info).not.to.equal(null);
+                            expect(info).to.include.keys(genericProjectId);
+                            expect(info[genericProjectId]).to.include.keys('branches');
+                            expect(info[genericProjectId].branches).to.include.keys('genericBranch', 'master');
 
-                                expect(client.getActiveProjectId()).to.equal(actualProject);
-                                expect(info).not.to.equal(null);
-                                expect(info).to.include.keys(genericProjectId);
-                                expect(info[genericProjectId]).to.include.keys('branches');
-                                expect(info[genericProjectId].branches).to.include.keys('genericBranch');
-
-                                expect(err).to.equal(null);
-                                done();
-                            });
+                            expect(err).to.equal(null);
+                            done();
                         });
                     });
                 });
@@ -937,44 +934,41 @@ describe('GME client', function () {
 
                 actualProject = client.getActiveProjectId();
 
-                client.deleteProject(genericProjectId, function (err) {
+                client.getBranches(genericProjectId, function (err, branches) {
                     expect(err).to.equal(null);
-                    client.createProject(genericProjectName, function (err, projectId) {
-                        expect(err).to.equal(null);
-                        expect(projectId).to.equal(genericProjectId);
+                    expect(branches.master).to.include('#');
 
-                        client.createBranch(genericProjectId, 'genericBranch', '#424242', function (err) {
+                    client.createBranch(genericProjectId, 'genericBranch', branches.master, function (err) {
+                        expect(err).to.equal(null);
+
+                        client.getProjectsAndBranches(true, function (err, info) {
                             expect(err).to.equal(null);
 
-                            client.getProjectsAndBranches(true, function (err, info) {
-                                expect(err).to.equal(null);
+                            expect(client.getActiveProjectId()).to.equal(actualProject);
+                            expect(info).not.to.equal(null);
+                            expect(info).to.include.keys(genericProjectId);
+                            expect(info[genericProjectId]).to.include.keys('branches');
+                            expect(info[genericProjectId].branches).to.include.keys('genericBranch');
 
-                                expect(client.getActiveProjectId()).to.equal(actualProject);
-                                expect(info).not.to.equal(null);
-                                expect(info).to.include.keys(genericProjectId);
-                                expect(info[genericProjectId]).to.include.keys('branches');
-                                expect(info[genericProjectId].branches).to.include.keys('genericBranch');
-
-                                client.deleteBranch(genericProjectId,
-                                    'genericBranch',
-                                    '#424242',
-                                    function (err) {
+                            client.deleteBranch(genericProjectId,
+                                'genericBranch',
+                                branches.master,
+                                function (err) {
+                                    expect(err).to.equal(null);
+                                    client.getProjectsAndBranches(true, function (err, info) {
                                         expect(err).to.equal(null);
-                                        client.getProjectsAndBranches(true, function (err, info) {
-                                            expect(err).to.equal(null);
 
-                                            expect(client.getActiveProjectId()).to.equal(actualProject);
-                                            expect(info).not.to.equal(null);
-                                            expect(info).to.include.keys(genericProjectId);
-                                            expect(info[genericProjectId]).to.include.keys('branches');
-                                            expect(info[genericProjectId].branches)
-                                                .not.to.include.keys('genericBranch');
+                                        expect(client.getActiveProjectId()).to.equal(actualProject);
+                                        expect(info).not.to.equal(null);
+                                        expect(info).to.include.keys(genericProjectId);
+                                        expect(info[genericProjectId]).to.include.keys('branches');
+                                        expect(info[genericProjectId].branches)
+                                            .not.to.include.keys('genericBranch');
 
-                                            done();
-                                        });
-                                    }
-                                );
-                            });
+                                        done();
+                                    });
+                                }
+                            );
                         });
                     });
                 });
@@ -1071,7 +1065,7 @@ describe('GME client', function () {
                 activeBranchName = client.getActiveBranchName();
 
                 client.forkCurrentBranch(forkName, commitHash, function (err /*, name, hash*/) {
-                    expect(err).to.include('Could not find specified commitHash');
+                    expect(err.message).to.include('Could not find specified commitHash');
 
                     client.getBranches(projectId, function (err, branches) {
                         expect(err).to.equal(null);
@@ -1455,14 +1449,14 @@ describe('GME client', function () {
             expect(clientNode.getOwnEditableRegistry('newReg')).to.eql(registryItem);
             client.delRegistry(clientNodePath, 'newReg');
         });
-        
+
         it('should return the names of available pointers', function () {
             expect(clientNode.getPointerNames()).to.have.members(['ptr', 'base']);
         });
 
         it('should return the list of META-defined pointers', function () {
             expect(clientNode.getValidPointerNames()).to.have.members(['ptr']);
-        })
+        });
 
         it('should return the names of available pointers which has a target on this inheritance level',
             function () {
@@ -1558,9 +1552,9 @@ describe('GME client', function () {
             expect(clientNode.toString()).to.contain('/323573539');
         });
 
-        it('should log the textual representation of the node',function(){
-
-        })
+        //it('should log the textual representation of the node', function () {
+        //
+        //})
     });
 
     describe('basic territory tests', function () {
@@ -1847,17 +1841,19 @@ describe('GME client', function () {
             projectName = 'nodeManipulationProject',
             baseCommitHash;
 
-        function buildUpForTest(testId, patternObject, commitHandler, eventCallback) {
+        function buildUpForTest(testId, patternObject, branchStatusHandler, eventCallback) {
             var branchName = testId;
             client.createBranch(projectId, branchName, baseCommitHash, function (err) {
                 expect(err).to.equal(null);
-
-                client.selectBranch(branchName, commitHandler, function (err) {
+                //console.log('##### created', branchName);
+                client.selectBranch(branchName, null, function (err) {
                     var user = {},
                         userId = testId;
-
+                    //console.log('##### opened', branchName);
                     expect(err).to.equal(null);
-
+                    if (branchStatusHandler) {
+                        client.getProjectObject().branches[branchName].addBranchStatusHandler(branchStatusHandler);
+                    }
                     client.addUI(user, eventCallback, userId);
                     client.updateTerritory(userId, patternObject);
                 });
@@ -1903,13 +1899,14 @@ describe('GME client', function () {
         it('should modify the attribute of the given node', function (done) {
             var testState = 'init',
                 testId = 'basicSetAttribute',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status/*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
             currentTestId = testId;
-            buildUpForTest(testId, {'/323573539': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/323573539': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
                     expect(events).to.have.length(2);
@@ -1935,15 +1932,16 @@ describe('GME client', function () {
         it('should delete the given attribute of the node', function (done) {
             var testState = 'init',
                 testId = 'basicDelAttribute',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status/*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/323573539': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -1972,14 +1970,15 @@ describe('GME client', function () {
         it('should sets the given registry entry of the node', function (done) {
             var testState = 'init',
                 testId = 'basicSetRegistry',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status/*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/323573539': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2009,15 +2008,16 @@ describe('GME client', function () {
         it('should remove the given registry key of the node', function (done) {
             var testState = 'init',
                 testId = 'basicDelRegistry',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/323573539': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2045,12 +2045,12 @@ describe('GME client', function () {
 
         it('should complete a transaction but not commit any changes', function (done) {
             var testId = 'basicCompleteTransaction',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
+                branchStatusHandler = function (/*status, commitQueue, updateQueue*/) {
+                    done(new Error('Should not have committed empty'));
                 };
             currentTestId = testId;
 
-            buildUpForTest(testId, {}, commitHandler, function () {
+            buildUpForTest(testId, {}, branchStatusHandler, function () {
                 client.removeUI(testId);//we do not need a UI and it would just make test code more complex
                 client.completeTransaction('should not persist anything', function (err) {
                     expect(err).to.equal(null);
@@ -2116,14 +2116,15 @@ describe('GME client', function () {
         it('should remove the given node', function (done) {
             var testState = 'init',
                 testId = 'basicDelNode',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/323573539': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2150,14 +2151,15 @@ describe('GME client', function () {
         it('should set the given pointer of the node to the specified target', function (done) {
             var testState = 'init',
                 testId = 'basicMakePointer',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'checking';
@@ -2189,14 +2191,15 @@ describe('GME client', function () {
         it('should set a null target', function (done) {
             var testState = 'init',
                 testId = 'makeNullPointer',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
-            buildUpForTest(testId, {'/1697300825': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/1697300825': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2225,15 +2228,16 @@ describe('GME client', function () {
         it('should remove the given pointer of the node', function (done) {
             var testState = 'init',
                 testId = 'basicDelPointer',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/1697300825': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/1697300825': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2266,16 +2270,17 @@ describe('GME client', function () {
                 testId = 'basicCopyNodes',
                 node,
                 initialPaths = [],
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 newPaths = [],
                 i;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2349,16 +2354,17 @@ describe('GME client', function () {
                 node,
                 initialPaths = [],
                 newPaths = [],
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 i,
                 newTarget = null;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2449,9 +2455,10 @@ describe('GME client', function () {
             var testState = 'init',
                 testId = 'copySingleNode',
                 node,
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 initialPaths = [],
                 newPaths = [],
@@ -2459,7 +2466,7 @@ describe('GME client', function () {
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2547,15 +2554,16 @@ describe('GME client', function () {
                 node,
                 newId = null,
                 initialPaths = [],
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 i;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2601,9 +2609,10 @@ describe('GME client', function () {
             var testState = 'init',
                 testId = 'createChildDefaultPosition',
                 node,
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 newId = null,
                 initialPaths = [],
@@ -2611,7 +2620,7 @@ describe('GME client', function () {
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2657,9 +2666,10 @@ describe('GME client', function () {
                 testId = 'basicCreateChildren',
                 node,
                 initialPaths = [],
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 newPaths = [],
                 i,
@@ -2667,7 +2677,7 @@ describe('GME client', function () {
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2760,13 +2770,14 @@ describe('GME client', function () {
                 testId = 'basicMoveNodes',
                 node,
                 first = true,
-                commitHandler = function (queue, result, callback) {
-                    if (first) {
-                        first = false;
-                        callback(true);
-                    } else {
-                        callback(false);
-                        done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    console.log(status);
+                    if (status === client.CONSTANTS.BRANCH_STATUS.AHEAD_SYNC) {
+                        if (first) {
+                            first = false;
+                        } else {
+                            done();
+                        }
                     }
                 },
                 containerId = null,
@@ -2776,7 +2787,7 @@ describe('GME client', function () {
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'containerCreated';
 
@@ -2860,15 +2871,16 @@ describe('GME client', function () {
             var testState = 'init',
                 testId = 'basicSetConstraint',
                 node,
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 constraint = null;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/1400778473': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/1400778473': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2913,15 +2925,16 @@ describe('GME client', function () {
             // delConstraint 701504349
             var testState = 'init',
                 testId = 'basicDelConstraint',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/701504349': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/701504349': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -2953,15 +2966,16 @@ describe('GME client', function () {
         it('should add the given node as a new member to the specified set of our node', function (done) {
             var testState = 'init',
                 testId = 'basicAddMember',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'checking';
@@ -2993,15 +3007,16 @@ describe('GME client', function () {
         it('should remove the given member of the specified set of the node', function (done) {
             var testState = 'init',
                 testId = 'basicRemoveMember',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'checking';
@@ -3033,15 +3048,16 @@ describe('GME client', function () {
         it('should set the given attribute of the specified member of the set', function (done) {
             var testState = 'init',
                 testId = 'basicSetMemberAttribute',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'checking';
@@ -3082,20 +3098,21 @@ describe('GME client', function () {
             var testState = 'init',
                 testId = 'basicDelMemberAttribute',
                 first = true,
-                commitHandler = function (queue, result, callback) {
-                    if (first) {
-                        first = false;
-                        callback(true);
-                    } else {
-                        callback(false);
-                        done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    console.log(status);
+                    if (status === client.CONSTANTS.BRANCH_STATUS.AHEAD_SYNC) {
+                        if (first) {
+                            first = false;
+                        } else {
+                            done();
+                        }
                     }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'add';
@@ -3149,15 +3166,16 @@ describe('GME client', function () {
         it('should set the given registry key of the set member', function (done) {
             var testState = 'init',
                 testId = 'basicSetMemberRegistry',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'checking';
@@ -3198,20 +3216,21 @@ describe('GME client', function () {
             var testState = 'init',
                 testId = 'basicDelMemberRegistry',
                 first = true,
-                commitHandler = function (queue, result, callback) {
-                    if (first) {
-                        first = false;
-                        callback(true);
-                    } else {
-                        callback(false);
-                        done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    console.log(status);
+                    if (status === client.CONSTANTS.BRANCH_STATUS.AHEAD_SYNC) {
+                        if (first) {
+                            first = false;
+                        } else {
+                            done();
+                        }
                     }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/1697300825': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'add';
@@ -3268,15 +3287,16 @@ describe('GME client', function () {
         it('should create an empty set for the node with the given name', function (done) {
             var testState = 'init',
                 testId = 'basicCreateSet',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}}, commitHandler, function (events) {
+            buildUpForTest(testId, {'/323573539': {children: 0}}, branchStatusHandler, function (events) {
                 if (testState === 'init') {
                     testState = 'checking';
 
@@ -3305,15 +3325,16 @@ describe('GME client', function () {
         it('should remove the given set of the node', function (done) {
             var testState = 'init',
                 testId = 'basicDeleteSet',
-                commitHandler = function (queue, result, callback) {
-                    callback(false);
-                    done();
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
                 },
                 node;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'/323573539': {children: 0}, '/701504349': {children: 0}}, commitHandler,
+            buildUpForTest(testId, {'/323573539': {children: 0}, '/701504349': {children: 0}}, branchStatusHandler,
                 function (events) {
                     if (testState === 'init') {
                         testState = 'checking';
@@ -3356,11 +3377,16 @@ describe('GME client', function () {
             var testState = 'init',
                 testId = 'basicSetBase',
                 node,
+                branchStatusHandler = function (status /*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
+                },
                 newId = null;
 
             currentTestId = testId;
 
-            buildUpForTest(testId, {'': {children: 1}}, null, function (events) {
+            buildUpForTest(testId, {'': {children: 1}}, branchStatusHandler, function (events) {
 
                 if (testState === 'init') {
                     testState = 'checking';
@@ -3381,7 +3407,7 @@ describe('GME client', function () {
                     client.setBase(newId, '/701504349');
                     client.completeTransaction('basic set base test', function (err) {
                         expect(err).to.equal(null);
-                        done();
+                        //done();
                     });
 
                     return;
@@ -3625,62 +3651,14 @@ describe('GME client', function () {
             });
         });
 
-        it('should return a url which would download the given list of nodes', function (done) {
-            this.timeout(10000);
-            client.getExportItemsUrl(['', '/1'], 'output', function (err, url) {
-                expect(err).to.equal(null);
-                expect(url).to.contain('output');
-                expect(url).to.contain('/worker/simpleResult/');
-
-                //FIXME why server crashes at the end if we get the result??
-                superagent.get(url).end(function (err, res) {
-
-                    expect(err).to.equal(null);
-
-                    expect(res.status).to.equal(200);
-
-                    expect(res.body).not.to.equal(null);
-
-                    expect(res.body).to.have.length(2);
-
-                    done();
-                });
-            });
-        });
-
         it('should return a url where the given library (sub-tree) is available', function (done) {
             this.timeout(5000);
             client.getExportLibraryUrl('', 'output', function (err, url) {
                 expect(err).to.equal(null);
-                expect(url).to.contain('output');
-                expect(url).to.contain('/worker/simpleResult/');
+                expect(url).to.contain('/rest/blob/download');
 
                 done();
             });
-        });
-
-        it.skip('should return a json format of the node (or a sub-tree)', function (done) {
-            client.dumpNodeAsync('', function (err, dump) {
-                expect(err).to.equal(null);
-
-                expect(dump).not.to.equal(null);
-
-                done();
-            });
-        });
-
-        it.skip('should fail to dump not loaded node', function (done) {
-            // dumpNodeAsync
-            client.dumpNodeAsync('/42/42', function (err) {
-                expect(err).not.to.equal(null);
-
-                done();
-            });
-        });
-
-        //TODO modify this test to use the getExportProjectBranchUrlAsync function
-        it.skip('should return a url for dumping the whole project', function () {
-            expect(client.getDumpURL({})).to.contain('dump_url.out');
         });
     });
 
@@ -3723,13 +3701,13 @@ describe('GME client', function () {
             projectName = 'metaQueryAndManipulationTest',
             baseCommitHash;
 
-        function prepareBranchForTest(branchName, commitHandler, next) {
+        function prepareBranchForTest(branchName, branchStatusHandler, next) {
             //creates a branch then a UI for it, finally waits for the nodes to load
             currentTestId = branchName;
             client.createBranch(projectId, branchName, baseCommitHash, function (err) {
                 expect(err).to.equal(null);
 
-                client.selectBranch(branchName, commitHandler, function (err) {
+                client.selectBranch(branchName, null, function (err) {
                     expect(err).to.equal(null);
 
                     //now we should load all necessary node, possibly in one step to allow the synchronous execution
@@ -3740,7 +3718,10 @@ describe('GME client', function () {
                             expect(events).to.have.length(12);
                             expect(events[0]).to.contain.keys('eid', 'etype');
                             expect(events[0].etype).to.equal('complete');
-
+                            if (branchStatusHandler) {
+                                client.getProjectObject().branches[branchName]
+                                    .addBranchStatusHandler(branchStatusHandler);
+                            }
                             alreadyHandled = true;
                             next(null);
                         }
@@ -3851,11 +3832,12 @@ describe('GME client', function () {
         });
 
         it('modify an empty ruleset to empty', function (done) {
-            var commitHandler = function (queue, result, callback) {
-                callback(false);
-                done();
-            };
-            prepareBranchForTest('noChangeSet', commitHandler, function (err) {
+            var branchStatusHandler = function (status/*, commitQueue, updateQueue*/) {
+                    if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                        done();
+                    }
+                };
+            prepareBranchForTest('noChangeSet', branchStatusHandler, function (err) {
                 expect(err).to.equal(null);
 
                 var old = client.getMeta('/1730437907');
@@ -3865,11 +3847,12 @@ describe('GME client', function () {
         });
 
         it('add some rule via setMeta', function (done) {
-            var commitHandler = function (queue, result, callback) {
-                callback(false);
-                done();
+            var branchStatusHandler = function (status/*, commitQueue, updateQueue*/) {
+                if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                    done();
+                }
             };
-            prepareBranchForTest('addWithSet', commitHandler, function (err) {
+            prepareBranchForTest('addWithSet', branchStatusHandler, function (err) {
                 expect(err).to.equal(null);
 
                 var old = client.getMeta('/1730437907'),
@@ -3882,11 +3865,12 @@ describe('GME client', function () {
         });
 
         it('remove some rule via setMeta', function (done) {
-            var commitHandler = function (queue, result, callback) {
-                callback(false);
-                done();
+            var branchStatusHandler = function (status/*, commitQueue, updateQueue*/) {
+                if (status === client.CONSTANTS.BRANCH_STATUS.SYNC) {
+                    done();
+                }
             };
-            prepareBranchForTest('removeWithSet', commitHandler, function (err) {
+            prepareBranchForTest('removeWithSet', branchStatusHandler, function (err) {
                 expect(err).to.equal(null);
 
                 var meta = client.getMeta('/1');
@@ -4011,9 +3995,13 @@ describe('GME client', function () {
 
                 client.getExportProjectBranchUrl(projectId, 'master', 'seedTestOutPut',
                     function (err, url) {
+                        var karmaUrl;
                         expect(err).to.equal(null);
+                        expect(url).to.contain('http://127.0.0.1:9001/rest/blob/download/');
 
-                        superagent.get(url, function (err, result) {
+                        karmaUrl = url.replace('http://127.0.0.1:9001', window.location.origin);
+
+                        superagent.get(karmaUrl, function (err, result) {
                             expect(err).to.equal(null);
 
                             expect(result.body).to.deep.equal(refNodeProj);
@@ -4044,9 +4032,13 @@ describe('GME client', function () {
 
                 client.getExportProjectBranchUrl(projectId, 'master', 'seedTestOutPut',
                     function (err, url) {
+                        var karmaUrl;
                         expect(err).to.equal(null);
+                        expect(url).to.contain('http://127.0.0.1:9001/rest/blob/download/');
 
-                        superagent.get(url, function (err, result) {
+                        karmaUrl = url.replace('http://127.0.0.1:9001', window.location.origin);
+
+                        superagent.get(karmaUrl, function (err, result) {
                             expect(err).to.equal(null);
 
                             expect(result.body).to.deep.equal(refSFSProj);
@@ -4159,7 +4151,7 @@ describe('GME client', function () {
             client.seedProject(seedConfig, function (err) {
                 expect(err).to.equal(null);
 
-                client.getExportProjectBranchUrl(projectId, 'other', 'seedTestOutPut',
+                client.getExportProjectBranchUrl(projectId, 'master', 'seedTestOutPut',
                     function (err, url) {
                         expect(err).to.equal(null);
 
@@ -4191,8 +4183,8 @@ describe('GME client', function () {
 
             client.seedProject(seedConfig, function (err) {
                 expect(err).not.to.equal(null);
-
-                expect(err).to.contain('Project already exists');
+                console.error('seedProject', err);
+                expect(err.message).to.contain('Project already exists');
 
                 done();
             });
@@ -4209,7 +4201,7 @@ describe('GME client', function () {
             client.seedProject(seedConfig, function (err) {
                 expect(err).not.to.equal(null);
 
-                expect(err).to.contain('unknownBranch');
+                expect(err.message).to.contain('unknownBranch');
 
                 done();
             });
@@ -4226,7 +4218,7 @@ describe('GME client', function () {
             client.seedProject(seedConfig, function (err) {
                 expect(err).not.to.equal(null);
 
-                expect(err).to.contain('unknown file seed');
+                expect(err.message).to.contain('unknown file seed');
 
                 done();
             });

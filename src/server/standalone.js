@@ -24,6 +24,7 @@ var Path = require('path'),
     Http = require('http'),
     Https = require('https'),
     URL = require('url'),
+    contentDisposition = require('content-disposition'),
 
     Mongo = require('./storage/mongo'),
     Storage = require('./storage/safestorage'),
@@ -360,7 +361,6 @@ function StandAloneServer(gmeConfig) {
                 } else if (gmeConfig.authentication.allowGuests) {
                     req.session.authenticated = true;
                     req.session.udmId = gmeConfig.authentication.guestAccount;
-                    req.session.userType = 'GME';
                     res.cookie('webgme', req.session.udmId);
                     return next();
                 } else if (res.getHeader('X-WebGME-Media-Type')) {
@@ -376,7 +376,6 @@ function StandAloneServer(gmeConfig) {
             // if authentication is turned off we treat everybody as a guest user
             req.session.authenticated = true;
             req.session.udmId = gmeConfig.authentication.guestAccount;
-            req.session.userType = 'GME';
             res.cookie('webgme', req.session.udmId);
             return next();
         }
@@ -503,8 +502,8 @@ function StandAloneServer(gmeConfig) {
         __sessionStore,
         __workerManager,
         __users = {},
-        __googleAuthenticationSet = false,
-        __canCheckToken = true,
+    //__googleAuthenticationSet = false,
+    //__canCheckToken = true,
         __httpServer = null,
         __logoutUrl = gmeConfig.authentication.logOutUrl || '/',
         __baseDir = requireJS.s.contexts._.config.baseUrl,// TODO: this is ugly
@@ -632,7 +631,8 @@ function StandAloneServer(gmeConfig) {
     //});
 
     if (gmeConfig.executor.enable) {
-        ExecutorServer.createExpressExecutor(__app, '/rest/executor', middlewareOpts);
+        ExecutorServer.initialize(middlewareOpts);
+        __app.use('/rest/executor', ExecutorServer.router);
     } else {
         logger.debug('Executor not enabled. Add \'executor.enable: true\' to configuration to activate.');
     }
@@ -647,10 +647,8 @@ function StandAloneServer(gmeConfig) {
     });
     __app.get('/logout', function (req, res) {
         res.clearCookie('webgme');
-        res.clearCookie('isisforge'); // TODO is this really needed
         req.logout();
         req.session.authenticated = false;
-        req.session.userType = 'loggedout';
         delete req.session.udmId;
         res.redirect(__logoutUrl);
     });
@@ -845,35 +843,34 @@ function StandAloneServer(gmeConfig) {
     apiReady = api.createAPI(__app, '/api', middlewareOpts);
 
 
-    logger.debug('creating server-worker related routing rules');
-
-    function sendSimpleResult(res, resultId, filename) {
-        logger.debug('worker/simpleResult requested, urlArray', {metadata: {id: resultId, filename: filename}});
-
-        __workerManager.result(resultId, function (err, result) {
-            if (err) {
-                logger.error('worker/simpleResult err', err);
-                res.sendStatus(500);
-            } else {
-                res.header('Content-Disposition', 'attachment;filename=\'' + filename + '\'');
-                res.json(result);
-            }
-        });
-    }
-
-    __app.get('/worker/simpleResult/:resultId', function (req, res) {
-        var filename = 'simpleResult-' + req.params.resultId + '.json';
-        sendSimpleResult(res, req.params.resultId, filename);
-    });
-
-    // FIXME: filename should be in query string
-    __app.get('/worker/simpleResult/:resultId/:filename', function (req, res) {
-        var filename = req.params.filename;
-        if (filename.indexOf('.json') === -1) {
-            filename += '.json';
-        }
-        sendSimpleResult(res, req.params.resultId, filename);
-    });
+    //logger.debug('creating server-worker related routing rules');
+    //function sendSimpleResult(res, resultId, filename) {
+    //    logger.debug('worker/simpleResult requested, urlArray', {metadata: {id: resultId, filename: filename}});
+    //
+    //    __workerManager.result(resultId, function (err, result) {
+    //        if (err) {
+    //            logger.error('worker/simpleResult err', err);
+    //            res.sendStatus(500);
+    //        } else {
+    //            res.header('Content-Disposition', contentDisposition(filename));
+    //            res.json(result);
+    //        }
+    //    });
+    //}
+    //
+    //__app.get('/worker/simpleResult/:resultId', function (req, res) {
+    //    var filename = 'simpleResult-' + req.params.resultId + '.json';
+    //    sendSimpleResult(res, req.params.resultId, filename);
+    //});
+    //
+    //// FIXME: filename should be in query string
+    //__app.get('/worker/simpleResult/:resultId/:filename', function (req, res) {
+    //    var filename = req.params.filename;
+    //    if (filename.indexOf('.json') === -1) {
+    //        filename += '.json';
+    //    }
+    //    sendSimpleResult(res, req.params.resultId, filename);
+    //});
 
 
     logger.debug('creating list asset rules');

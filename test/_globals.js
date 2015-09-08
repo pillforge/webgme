@@ -24,10 +24,12 @@ var WebGME = require('../webgme'),
     },
     Core = requireJS('common/core/core'),
     NodeStorage = requireJS('../src/common/storage/nodestorage'),
+    storageUtil = requireJS('common/storage/util'),
     Mongo = require('../src/server/storage/mongo'),
     Memory = require('../src/server/storage/memory'),
     SafeStorage = require('../src/server/storage/safestorage'),
     Logger = require('../src/server/logger'),
+
     logger = Logger.create('gme:test', {
         //patterns: ['gme:test:*cache'],
         transports: [{
@@ -69,8 +71,41 @@ var WebGME = require('../webgme'),
     mongodb = require('mongodb'),
     Q = require('q'),
     fs = require('fs'),
+    path = require('path'),
     rimraf = require('rimraf'),
     childProcess = require('child_process');
+
+/**
+ * A combination of Q.allSettled and Q.all. It works like Q.allSettled in the sense that
+ * the promise is not rejected until all promises have finished and like Q.all in that it
+ * is rejected with the first encountered rejection and resolves with an array of "values".
+ *
+ * The rejection is always an Error.
+ * @param promises
+ * @returns {*|promise}
+ */
+Q.allDone = function (promises) {
+    var deferred = Q.defer();
+    Q.allSettled(promises)
+        .then(function (results) {
+            var i,
+                values = [];
+            for (i = 0; i < results.length; i += 1) {
+                if (results[i].state === 'rejected') {
+                    deferred.reject(new Error(results[i].reason));
+                    break;
+                } else if (results[i].state === 'fulfilled') {
+                    values.push(results[i].value);
+                } else {
+                    deferred.reject(new Error('Unexpected promise state' + results[i].state));
+                    break;
+                }
+            }
+            deferred.resolve(values);
+        });
+
+    return deferred.promise;
+};
 
 function clearDatabase(gmeConfigParameter, callback) {
     var deferred = Q.defer(),
@@ -79,20 +114,18 @@ function clearDatabase(gmeConfigParameter, callback) {
     Q.ninvoke(mongodb.MongoClient, 'connect', gmeConfigParameter.mongo.uri, gmeConfigParameter.mongo.options)
         .then(function (db_) {
             db = db_;
-            return Q.allSettled([
-                Q.ninvoke(db, 'collection', '_users')
-                    .then(function (collection_) {
-                        return Q.ninvoke(collection_, 'remove');
-                    }),
-                Q.ninvoke(db, 'collection', '_organizations')
-                    .then(function (orgs_) {
-                        return Q.ninvoke(orgs_, 'remove');
-                    }),
-                Q.ninvoke(db, 'collection', '_projects')
-                    .then(function (projects_) {
-                        return Q.ninvoke(projects_, 'remove');
-                    })
-            ]);
+            return Q.ninvoke(db, 'collectionNames');
+        })
+        .then(function (collectionNames) {
+            var collectionPromises = [];
+            collectionNames.map(function (collData) {
+                if (collData.name.indexOf('system.') === -1) {
+                    collectionPromises.push(Q.ninvoke(db, 'dropCollection', collData.name));
+                } else {
+
+                }
+            });
+            return Q.allDone(collectionPromises);
         })
         .then(function () {
             return Q.ninvoke(db, 'close');
@@ -136,7 +169,7 @@ function clearDBAndGetGMEAuth(gmeConfigParameter, projectNameOrNames, callback) 
         })
         .then(function (gmeAuth_) {
             gmeAuth = gmeAuth_;
-            return Q.allSettled([
+            return Q.allDone([
                 gmeAuth.addUser(guestAccount, guestAccount + '@example.com', guestAccount, true, {overwrite: true}),
                 gmeAuth.addUser('admin', 'admin@example.com', 'admin', true, {overwrite: true, siteAdmin: true})
             ]);
@@ -172,7 +205,7 @@ function clearDBAndGetGMEAuth(gmeConfigParameter, projectNameOrNames, callback) 
                 logger.warn('No projects to authorize...', projectNameOrNames);
             }
 
-            return Q.allSettled(projectsToAuthorize);
+            return Q.allDone(projectsToAuthorize);
         })
         .then(function () {
             deferred.resolve(gmeAuth);
@@ -219,9 +252,8 @@ function importProject(storage, parameters, callback) {
     data.projectName = parameters.projectName;
 
     storage.createProject(data)
-        .then(function (dbProject) {
-            var project = new Project(dbProject, storage, parameters.logger, parameters.gmeConfig),
-                core = new Core(project, {
+        .then(function (project) {
+            var core = new Core(project, {
                     globConf: parameters.gmeConfig,
                     logger: parameters.logger
                 }),
@@ -235,19 +267,12 @@ function importProject(storage, parameters, callback) {
                 }
                 persisted = core.persist(rootNode);
 
-                var commitObject = project.createCommitObject([''], persisted.rootHash, 'test', 'project imported'),
-                    commitData = {
-                        projectId: project.projectId,
-                        branchName: branchName,
-                        commitObject: commitObject,
-                        coreObjects: persisted.objects
-                    };
-                storage.makeCommit(commitData)
+                project.makeCommit(branchName, [''], persisted.rootHash, persisted.objects, 'project imported')
                     .then(function (result) {
                         deferred.resolve({
                             status: result.status,
                             branchName: branchName,
-                            commitHash: commitObject._id,
+                            commitHash: result.hash,
                             project: project,
                             projectId: project.projectId,
                             core: core,
@@ -302,34 +327,7 @@ function saveChanges(parameters, done) {
  */
 function projectName2Id(projectName, userId) {
     userId = userId || gmeConfig.authentication.guestAccount;
-    return userId + STORAGE_CONSTANTS.PROJECT_ID_SEP + projectName;
-}
-
-/**
- * Forces the deletion of the given projectName (N.B. not projectId).
- * @param storage
- * @param gmeAuth
- * @param projectName
- * @param [userId=gmeConfig.authentication.guestAccount]
- * @param [callback]
- * @returns {*}
- */
-function forceDeleteProject(storage, gmeAuth, projectName, userId, callback) {
-    var projectId = projectName2Id(projectName, userId);
-
-    userId = userId || gmeConfig.authentication.guestAccount;
-
-    return gmeAuth.addProject(userId, projectName, null)
-        .then(function () {
-            return gmeAuth.authorizeByUserId(userId, projectId, 'create', {
-                read: true,
-                write: true,
-                delete: true
-            });
-        })
-        .then(function () {
-            return storage.deleteProject({projectId: projectId});
-        }).nodeify(callback);
+    return storageUtil.getProjectIdFromOwnerIdAndProjectName(userId, projectName);
 }
 
 function logIn(server, agent, userName, password) {
@@ -412,6 +410,7 @@ module.exports = {
     getMemoryStorage: getMemoryStorage,
     Project: Project,
     Logger: Logger,
+    Core: Core,
     // test logger instance, used by all tests and only tests
     logger: logger,
     generateKey: generateKey,
@@ -425,6 +424,7 @@ module.exports = {
     requirejs: requireJS,
     Q: Q,
     fs: fs,
+    path: path,
     superagent: superagent,
     mongodb: mongodb,
     rimraf: rimraf,
@@ -441,9 +441,9 @@ module.exports = {
     importProject: importProject,
     saveChanges: saveChanges,
     projectName2Id: projectName2Id,
-    forceDeleteProject: forceDeleteProject,
     logIn: logIn,
     openSocketIo: openSocketIo,
-
+    storageUtil: storageUtil,
+    SEED_DIR: path.join(__dirname, '../seeds/'),
     STORAGE_CONSTANTS: STORAGE_CONSTANTS
 };

@@ -58,15 +58,7 @@ describe('storage storageclasses objectloaders', function () {
                     return safeStorage.openDatabase();
                 })
                 .then(function () {
-                    return Q.allSettled([
-                        safeStorage.deleteProject({projectId: projectName2Id(projectName)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameCreate)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameCreate2)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameDelete)})
-                    ]);
-                })
-                .then(function () {
-                    return Q.allSettled([
+                    return Q.allDone([
                         testFixture.importProject(safeStorage, {
                             projectSeed: 'seeds/EmptyProject.json',
                             projectName: projectName,
@@ -76,7 +68,7 @@ describe('storage storageclasses objectloaders', function () {
                     ]);
                 })
                 .then(function (results) {
-                    importResult = results[0].value; // projectName
+                    importResult = results[0]; // projectName
                     originalHash = importResult.commitHash;
 
                     commitObject = importResult.project.createCommitObject([originalHash],
@@ -120,7 +112,7 @@ describe('storage storageclasses objectloaders', function () {
                 return;
             }
 
-            Q.allSettled([
+            Q.allDone([
                 gmeAuth.unload(),
                 safeStorage.closeDatabase()
             ])
@@ -214,17 +206,28 @@ describe('storage storageclasses objectloaders', function () {
     });
 
 
-    it('should reach bucket size limit loadObject root three times', function (done) {
+    it('should reach bucket size limit (2) loadObject with three objects', function (done) {
+        var counter = 3,
+            ids = [];
 
-        Q.allSettled(
-            Q.ninvoke(storage, 'loadObject', projectName2Id(projectName), importResult.rootHash),
-            Q.ninvoke(storage, 'loadObject', projectName2Id(projectName), importResult.rootHash),
-            Q.ninvoke(storage, 'loadObject', projectName2Id(projectName), importResult.rootHash)
-        )
-            .then(function (promises) {
-                expect(promises.length).to.equal(0); // FIXME: is this right? no callback called???
-            })
-            .nodeify(done);
+        function objectLoaded(err, obj) {
+            counter -= 1;
+            expect(err).to.equal(null);
+
+            expect(typeof obj).to.equal('object');
+            expect(obj).not.to.equal(null);
+            expect(typeof obj._id).to.equal('string');
+
+            ids.push(obj._id);
+            if (counter === 0) {
+                expect(ids).to.have.members([importResult.rootHash, commitHash1, commitHash2]);
+                done();
+            }
+        }
+
+        storage.loadObject(projectName2Id(projectName), importResult.rootHash, objectLoaded);
+        storage.loadObject(projectName2Id(projectName), commitHash1, objectLoaded);
+        storage.loadObject(projectName2Id(projectName), commitHash2, objectLoaded);
     });
 
 

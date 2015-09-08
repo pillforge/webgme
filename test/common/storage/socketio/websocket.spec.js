@@ -54,14 +54,7 @@ describe('storage socketio websocket', function () {
                     return safeStorage.openDatabase();
                 })
                 .then(function () {
-                    return Q.allSettled([
-                        safeStorage.deleteProject({projectId: projectName2Id(projectName)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameCreate)}),
-                        safeStorage.deleteProject({projectId: projectName2Id(projectNameDelete)})
-                    ]);
-                })
-                .then(function () {
-                    return Q.allSettled([
+                    return Q.allDone([
                         testFixture.importProject(safeStorage, {
                             projectSeed: 'seeds/EmptyProject.json',
                             projectName: projectName,
@@ -71,7 +64,7 @@ describe('storage socketio websocket', function () {
                     ]);
                 })
                 .then(function (results) {
-                    importResult = results[0].value; // projectName
+                    importResult = results[0]; // projectName
                     originalHash = importResult.commitHash;
 
                     commitObject = importResult.project.createCommitObject([originalHash],
@@ -115,7 +108,7 @@ describe('storage socketio websocket', function () {
                 return;
             }
 
-            Q.allSettled([
+            Q.allDone([
                 gmeAuth.unload(),
                 safeStorage.closeDatabase()
             ])
@@ -586,7 +579,18 @@ describe('storage socketio websocket', function () {
 
     // TODO: makeCommit
     // TODO: loadObjects
-    // TODO: simpleQuery
+
+    it('should fail to execute simpleQuery without addOn configured', function (done) {
+        Q.nfcall(webSocket.simpleQuery, 'someWorkerId', {})
+            .then(function () {
+                done(new Error('missing error handling'));
+            })
+            .catch(function (err) {
+                expect(err.message).to.include('wrong request');
+                done();
+            })
+            .done();
+    });
 
     it('should exportProject as library using simple request', function (done) {
         var command = {
@@ -597,14 +601,11 @@ describe('storage socketio websocket', function () {
         };
 
         Q.nfcall(webSocket.simpleRequest, command)
-            .then(function (resultId) {
-                expect(typeof resultId).to.equal('string');
-                expect(resultId).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-                    'should be an id');
-                return Q.nfcall(webSocket.simpleResult, resultId);
-            })
             .then(function (result) {
-                expect(result).to.have.property('root');
+                expect(typeof result).to.equal('object');
+                expect(result).to.have.property('file');
+                expect(typeof result.file.hash).to.equal('string');
+                expect(result.file.url).to.include('http');
                 done();
             })
             .catch(function (err) {

@@ -1,4 +1,4 @@
-/*globals requireJS*/
+/*globals*/
 /*jshint node: true*/
 /**
  * @module Server:ServerWorkerManager
@@ -30,7 +30,11 @@ function ServerWorkerManager(_parameters) {
             execArgv = process.execArgv.filter(function (arg) {
                 if (arg.indexOf('--debug-brk') === 0) {
                     logger.info('Main process is in debug mode', arg);
-                    debug = true;
+                    debug = '--debug-brk';
+                    return false;
+                } else if (arg.indexOf('--debug') === 0) {
+                    logger.info('Main process is in debug mode', arg);
+                    debug = '--debug';
                     return false;
                 }
                 return true;
@@ -38,8 +42,8 @@ function ServerWorkerManager(_parameters) {
         // http://stackoverflow.com/questions/16840623/how-to-debug-node-js-child-forked-process
         // For some reason --debug-brk is given here..
         if (debug) {
-            execArgv.push('--debug-brk=' + debugPort.toString());
-            logger.info('Child debug flag: --debug-brk=' + debugPort.toString());
+            execArgv.push(debug + '=' + debugPort.toString());
+            logger.info('Child debug port: ' + debugPort.toString());
             debugPort += 1;
         }
 
@@ -48,7 +52,14 @@ function ServerWorkerManager(_parameters) {
 
         if (Object.keys(_workers || {}).length < gmeConfig.server.maxWorkers) {
             var worker = Child.fork(SIMPLE_WORKER_JS, [], {execArgv: execArgv});
-            _workers[worker.pid] = {worker: worker, state: CONSTANTS.workerStates.initializing, type: null, cb: null};
+
+            _workers[worker.pid] = {
+                worker: worker,
+                state: CONSTANTS.workerStates.initializing,
+                type: null,
+                cb: null
+            };
+
             logger.debug('workerPid forked ' + worker.pid);
             worker.on('message', messageHandling);
             worker.on('exit', function (code, signal) {
@@ -93,12 +104,6 @@ function ServerWorkerManager(_parameters) {
         if (len === 0) {
             callback(null);
         }
-    }
-
-    function stop(callback) {
-        clearInterval(_managerId);
-        _managerId = null;
-        freeAllWorkers(callback);
     }
 
     function assignRequest(workerPid) {
@@ -199,14 +204,15 @@ function ServerWorkerManager(_parameters) {
     }
 
     function request(parameters, callback) {
-        logger.debug('Adding new request', {metadata: parameters});
+        logger.debug('Incoming request', {metadata: parameters});
         _waitingRequests.push({request: parameters, cb: callback});
         reserveWorkerIfNecessary();
     }
 
     function reserveWorkerIfNecessary() {
         var workerIds = Object.keys(_workers || {}),
-            i, initializingWorkers = 0,
+            i,
+            initializingWorkers = 0,
             freeWorkers = 0;
 
         for (i = 0; i < workerIds.length; i++) {
@@ -223,36 +229,16 @@ function ServerWorkerManager(_parameters) {
         }
     }
 
-    function result(id, callback) {
-        var worker, message = null;
-        if (_idToPid[id]) {
-            worker = _workers[_idToPid[id]];
-            if (worker) {
-                //FIXME it is ok for now to ignore the assert, but how could we get here in a wrong state?
-                //ASSERT(worker.state === CONSTANTS.workerStates.waiting);
-                worker.state = CONSTANTS.workerStates.working;
-                worker.cb = callback;
-                worker.resid = null;
-                if (worker.type === CONSTANTS.workerTypes.connected) {
-                    message = {command: CONSTANTS.workerCommands.connectedWorkerStop};
-                }
-                worker.worker.send(message);
-            } else {
-                delete _idToPid[id];
-                callback('request handler cannot be found');
-            }
-        } else {
-            callback('wrong request identification');
-        }
-    }
-
     function query(id, parameters, callback) {
         var worker;
+        logger.debug('Incoming query', id, {metadata: parameters});
         if (_idToPid[id]) {
             worker = _workers[_idToPid[id]];
             if (worker) {
                 worker.cb = callback;
-                parameters.command = CONSTANTS.workerCommands.connectedWorkerQuery;
+                if (!parameters.command) {
+                    parameters.command = CONSTANTS.workerCommands.connectedWorkerQuery;
+                }
                 worker.worker.send(parameters);
             } else {
                 delete _idToPid[id];
@@ -306,10 +292,18 @@ function ServerWorkerManager(_parameters) {
         reserveWorkerIfNecessary();
     }
 
+    function stop(callback) {
+        clearInterval(_managerId);
+        _managerId = null;
+        freeAllWorkers(callback);
+    }
+
     return {
+        // Workers related
         request: request,
-        result: result,
         query: query,
+
+        // Manager related
         stop: stop,
         start: start
     };

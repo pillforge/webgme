@@ -1,8 +1,6 @@
 /*globals requireJS*/
 /*jshint node:true*/
 /**
- * This class is used when you need a project for e.g. core manipulations without going
- * through the web-sockets. This implies that it runs in same process and has direct access to the storage on the server.
  *
  * @module Server:UserProject
  * @author pmeijer / https://github.com/pmeijer
@@ -13,6 +11,17 @@ var CONSTANTS = requireJS('common/storage/constants'),
     GENKEY = requireJS('common/util/key'),
     ProjectInterface = requireJS('common/storage/project/interface');
 
+/**
+ * This project is connected directly to the database and does not require the server to be running.
+ * It is used by the bin scripts and for testing.
+ *
+ * @param {object} dbProject - Underlying data store project.
+ * @param {object} storage - Safe storage.
+ * @param {object} mainLogger - Logger instance.
+ * @param {GmeConfig} gmeConfig
+ * @constructor
+ * @augments ProjectInterface
+ */
 function UserProject(dbProject, storage, mainLogger, gmeConfig) {
     var self = this,
         objectLoader = {
@@ -24,12 +33,13 @@ function UserProject(dbProject, storage, mainLogger, gmeConfig) {
     ProjectInterface.call(this, dbProject.projectId, objectLoader, mainLogger, gmeConfig);
     this.userName = gmeConfig.authentication.guestAccount;
 
+    /**
+     * Sets the user that accesses the database. If not altered it defaults to authentication.guestAccount
+     * in the {GmeConfig}.
+     * @param {string} userName - User that access the database.
+     */
     this.setUser = function (userName) {
         this.userName = userName;
-    };
-
-    this.getBranch = function () {
-        return null;
     };
 
     // Helper functions
@@ -94,15 +104,27 @@ function UserProject(dbProject, storage, mainLogger, gmeConfig) {
             .nodeify(callback);
     };
 
-    this.createBranch = function (branchName, hash, callback) {
+    this.createBranch = function (branchName, newHash, callback) {
         var data = {
             username: self.userName,
             projectId: self.projectId,
             branchName: branchName,
-            hash: hash
+            hash: newHash
         };
 
         return storage.createBranch(data)
+            .nodeify(callback);
+    };
+
+    this.deleteBranch = function (branchName, oldHash, callback) {
+        var data = {
+            username: self.userName,
+            projectId: self.projectId,
+            branchName: branchName,
+            hash: oldHash
+        };
+
+        return storage.deleteBranch(data)
             .nodeify(callback);
     };
 
@@ -140,7 +162,7 @@ function UserProject(dbProject, storage, mainLogger, gmeConfig) {
     };
 }
 
-UserProject.prototype = Object.create(ProjectInterface);
+UserProject.prototype = Object.create(ProjectInterface.prototype);
 UserProject.prototype.constructor = UserProject;
 
 module.exports = UserProject;

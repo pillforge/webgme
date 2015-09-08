@@ -240,6 +240,8 @@ define(['js/logger',
                 REGISTRY_KEYS.POSITION);
         }
 
+        //setSelected sheet
+        //this._selectedMetaAspectSet
         //process the sheets
         positionsUpdated = this._processMetaAspectSheetsRegistry();
 
@@ -1248,30 +1250,30 @@ define(['js/logger',
     };
 
 
-    //MetaEditorControl.prototype._deleteInheritanceRelationship = function (parentID, objectID) {
-    //    var objectNode = this._client.getNode(objectID),
-    //        objectBaseId,
-    //        baseNode;
-    //
-    //    if (objectNode) {
-    //        objectBaseId = objectNode.getBaseId();
-    //
-    //        if (objectBaseId) {
-    //            baseNode = this._client.getNode(objectBaseId);
-    //            if (baseNode) {
-    //                objectBaseId = baseNode.getAttribute(nodePropertyNames.Attributes.name) + ' (' + objectBaseId + ')';
-    //            }
-    //            /*this.logger.debug('Deleting InheritanceRelationship from "' +
-    //             objectNode.getAttribute(nodePropertyNames.Attributes.name) + '" (' + objectID + ') to parent "' +
-    //             objectBaseId + '"');
-    //             this._client.delBase(objectID);*/
-    //            //TEMPORARILY DO NOT ALLOW DELETING INHERITANCE RELATIONSHIP
-    //            this.logger.warn('Deleting InheritanceRelationship from "' +
-    //                objectNode.getAttribute(nodePropertyNames.Attributes.name) + '" (' + objectID +
-    //                ') to parent "' + objectBaseId + '" is not allowed...');
-    //        }
-    //    }
-    //};
+    MetaEditorControl.prototype._deleteInheritanceRelationship = function (parentID, objectID) {
+        var objectNode = this._client.getNode(objectID),
+            objectBaseId,
+            baseNode;
+
+        if (objectNode) {
+            objectBaseId = objectNode.getBaseId();
+
+            if (objectBaseId) {
+                baseNode = this._client.getNode(objectBaseId);
+                if (baseNode) {
+                    objectBaseId = baseNode.getAttribute(nodePropertyNames.Attributes.name) + ' (' + objectBaseId + ')';
+                }
+                /*this.logger.debug('Deleting InheritanceRelationship from "' +
+                 objectNode.getAttribute(nodePropertyNames.Attributes.name) + '" (' + objectID + ') to parent "' +
+                 objectBaseId + '"');
+                 this._client.delBase(objectID);*/
+                //TEMPORARILY DO NOT ALLOW DELETING INHERITANCE RELATIONSHIP
+                this.logger.error('Deleting InheritanceRelationship from "' +
+                    objectNode.getAttribute(nodePropertyNames.Attributes.name) + '" (' + objectID +
+                    ') to parent "' + objectBaseId + '" is not allowed...');
+            }
+        }
+    };
     /****************************************************************************/
     /*    END OF --- CREATE NEW CONNECTION BETWEEN TWO ITEMS                    */
     /****************************************************************************/
@@ -1612,10 +1614,10 @@ define(['js/logger',
         });
 
         this._radioButtonGroupMetaRelationType.addButton({
-            "title": "Inheritance",
-            "selected": false,
-            "data": {"connType": MetaRelations.META_RELATIONS.INHERITANCE},
-            "icon": MetaRelations.createButtonIcon(16, MetaRelations.META_RELATIONS.INHERITANCE)
+            title: 'Inheritance',
+            selected: false,
+            data: {connType: MetaRelations.META_RELATIONS.INHERITANCE},
+            icon: MetaRelations.createButtonIcon(16, MetaRelations.META_RELATIONS.INHERITANCE)
         });
 
         this._radioButtonGroupMetaRelationType.addButton({
@@ -1772,6 +1774,13 @@ define(['js/logger',
                     }
                 }
             }
+        }
+
+        //setting selectedSheetID from global STATE
+        if (WebGMEGlobal.State.get(CONSTANTS.STATE_ACTIVE_TAB) !== null &&
+            WebGMEGlobal.State.get(CONSTANTS.STATE_ACTIVE_TAB) !== undefined &&
+            metaAspectSheetsRegistry.length > WebGMEGlobal.State.get(CONSTANTS.STATE_ACTIVE_TAB)) {
+            selectedSheetID = WebGMEGlobal.State.get(CONSTANTS.STATE_ACTIVE_TAB);
         }
 
         if (!selectedSheetID) {

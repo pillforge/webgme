@@ -57,14 +57,7 @@ function WebSocket(storage, mainLogger, gmeConfig, gmeAuth, workerManager) {
         var userId = userId;
         return getUserIdFromSocket(socket)
             .then(function (userId) {
-                return gmeAuth.getUser(userId);
-            })
-            .then(function (user) {
-                if (user.projects.hasOwnProperty(projectId)) {
-                    return Q(user.projects[projectId]);
-                } else {
-                    return Q({read: false, write: false, delete: false});
-                }
+                return gmeAuth.getProjectAuthorizationByUserId(userId, projectId);
             })
             .nodeify(callback);
     }
@@ -420,6 +413,27 @@ function WebSocket(storage, mainLogger, gmeConfig, gmeAuth, workerManager) {
                     });
             });
 
+            socket.on('transferProject', function (data, callback) {
+                getUserIdFromSocket(socket)
+                    .then(function (userId) {
+                        if (socket.rooms.indexOf(DATABASE_ROOM) > -1) {
+                            data.socket = socket;
+                        }
+                        data.username = userId;
+                        return storage.transferProject(data);
+                    })
+                    .then(function (newProjectId) {
+                        callback(null, newProjectId);
+                    })
+                    .catch(function (err) {
+                        if (gmeConfig.debug) {
+                            callback(err.stack);
+                        } else {
+                            callback(err.message);
+                        }
+                    });
+            });
+
             socket.on('getBranches', function (data, callback) {
                 getUserIdFromSocket(socket)
                     .then(function (userId) {
@@ -478,7 +492,10 @@ function WebSocket(storage, mainLogger, gmeConfig, gmeAuth, workerManager) {
                 getUserIdFromSocket(socket).
                     then(function (userId) {
                         parameters.username = userId;
-                        return storage.getCommonAncestorCommit(parameters, callback);
+                        return storage.getCommonAncestorCommit(parameters);
+                    })
+                    .then(function (commonCommitHash) {
+                        callback(null, commonCommitHash);
                     })
                     .catch(function (err) {
                         if (gmeConfig.debug) {
@@ -496,25 +513,6 @@ function WebSocket(storage, mainLogger, gmeConfig, gmeAuth, workerManager) {
                         parameters.userId = userId;
                         parameters.webGMESessionId = getSessionIdFromSocket(socket);
                         workerManager.request(parameters, callback);
-                    })
-                    .catch(function (err) {
-                        if (typeof err === 'string') {
-                            //FIXME: server-worker manager should return errors.
-                            callback(err);
-                            return;
-                        }
-                        if (gmeConfig.debug) {
-                            callback(err.stack);
-                        } else {
-                            callback(err.message);
-                        }
-                    });
-            });
-
-            socket.on('simpleResult', function (resultId, callback) {
-                getUserIdFromSocket(socket).
-                    then(function (/*userId*/) {
-                        workerManager.result(resultId, callback);
                     })
                     .catch(function (err) {
                         if (typeof err === 'string') {
