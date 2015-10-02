@@ -342,4 +342,59 @@ describe('coretype', function () {
             expect(e).not.to.equal(null);
         }
     });
+
+    it('should remove if node has inheritance-containment collision found during loadChildren', function (done) {
+        var typeA = core.createNode({parent: root}),
+            typeB = core.createNode({parent: root}),
+            instA = core.createNode({parent: root, base: typeA}),
+            instB = core.createNode({parent: root, base: typeB});
+
+        instA = core.moveNode(instA, instB);
+        instB = core.moveNode(instB, typeA);
+
+        TASYNC.call(function (children) {
+            expect(children).to.have.length(0);
+            done();
+        }, core.loadChildren(instB));
+    });
+
+    it('should remove if node has inheritance-containment collision found during loadByPath', function (done) {
+        var typeA = core.createNode({parent: root}),
+            typeB = core.createNode({parent: root}),
+            instA = core.createNode({parent: root, base: typeA}),
+            instB = core.createNode({parent: root, base: typeB}),
+            relid = core.getRelid(instA);
+
+
+        instA = core.moveNode(instA, instB);
+        instB = core.moveNode(instB, typeA);
+
+        TASYNC.call(function (node) {
+            expect(node).to.equal(null);
+            done();
+        }, core.loadByPath(root, core.getPath(instB) + '/' + relid));
+    });
+
+    it('should remove node if it contains its own base', function (done) {
+
+        var typeA = core.createNode({parent: root}),
+            typeB = core.createNode({parent: root}),
+            instA = core.createNode({parent: root, base: typeA}),
+            path = core.getPath(instA);
+
+
+        typeA = core.moveNode(typeA, typeB);
+        typeB = core.moveNode(typeB, instA);
+
+        //we have to save and reload otherwise the base is still in the cache so it can be loaded without a problem
+        core.persist(root);
+
+        TASYNC.call(function (newroot) {
+            expect(newroot).not.to.equal(null);
+            TASYNC.call(function (node) {
+                expect(node).to.equal(null);
+                done();
+            }, core.loadByPath(newroot, path));
+        }, core.loadRoot(core.getHash(root)));
+    });
 });

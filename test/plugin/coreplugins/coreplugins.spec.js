@@ -20,6 +20,7 @@ describe('CorePlugins', function () {
         logger = testFixture.logger.fork('coreplugins.spec'),
 
         pluginNames = [
+            'AddOnGenerator',
             'ConfigurationArtifact',
             'ExecutorPlugin',
             'ExportImport',
@@ -27,6 +28,7 @@ describe('CorePlugins', function () {
             'MetaGMEParadigmImporter',
             'MinimalWorkingExample',
             'PluginGenerator',
+            'VisualizerGenerator',
             'MultipleMainCallbackCalls',
             'PluginForked'
         ],
@@ -118,9 +120,14 @@ describe('CorePlugins', function () {
     it('should get all core plugins', function (done) {
         var agent = superagent.agent();
 
-        agent.get(serverBaseUrl + '/listAllPlugins', function (err, res) {
+        agent.get(serverBaseUrl + '/api/plugins', function (err, res) {
             expect(err).to.equal(null);
-            expect(res.body.allPlugins).to.deep.equal(pluginNames); // ensures that we test all available core plugins
+            // As pluginNames contains unique names, we can check that each is
+            // in the response and the response is the proper length
+            expect(res.body.length).to.equal(pluginNames.length);  // ensures that we test all available core plugins
+            for (var i = pluginNames.length; i--;) {
+                expect(res.body.indexOf(pluginNames[i])).to.not.equal(-1);
+            }
             done();
         });
     });

@@ -41,7 +41,7 @@ var WebGME = require('../webgme'),
                 prettyPrint: true,
                 //handleExceptions: true, // ignored by default when you create the logger, see the logger.create
                 //exitOnError: false,
-                depth: 2,
+                depth: 4,
                 debugStdout: true
             }
         }]
@@ -320,6 +320,58 @@ function saveChanges(parameters, done) {
 }
 
 /**
+ *
+ * @param core
+ * @param rootNode
+ * @param nodePath
+ * @param [callback]
+ * @returns {Q.Promise}
+ */
+function loadNode(core, rootNode, nodePath, callback) {
+    var deferred = new Q.defer();
+
+    core.loadByPath(rootNode, nodePath, function (err, node) {
+        if (err) {
+            deferred.reject(new Error(err));
+        } else if (core.isEmpty(node)) {
+            deferred.reject(new Error('Given nodePath does not exist "' + nodePath + '"!'));
+        } else {
+            deferred.resolve(node);
+        }
+    });
+
+    return deferred.promise.nodeify(callback);
+}
+
+/**
+ *
+ * @param project
+ * @param core
+ * @param commitHash
+ * @param [callback]
+ * @returns {Q.Promise}
+ */
+function loadRootNodeFromCommit(project, core, commitHash, callback) {
+    var deferred = new Q.defer();
+
+    project.loadObject(commitHash, function (err, commitObj) {
+        if (err) {
+            deferred.reject(new Error(err));
+        } else {
+            core.loadRoot(commitObj.root, function (err, rootNode) {
+                if (err) {
+                    deferred.reject(new Error(err));
+                } else {
+                    deferred.resolve(rootNode);
+                }
+            });
+        }
+    });
+
+    return deferred.promise.nodeify(callback);
+}
+
+/**
  * This uses the guest account by default
  * @param {string} projectName
  * @param {string} [userId=gmeConfig.authentication.guestAccount]
@@ -367,7 +419,6 @@ function openSocketIo(server, agent, userName, password) {
             socket = io.connect(serverBaseUrl,
                 {
                     query: 'webGMESessionId=' + webGMESessionId,
-                    transports: gmeConfig.socketIO.transports,
                     multiplex: false
                 });
 
@@ -443,6 +494,9 @@ module.exports = {
     projectName2Id: projectName2Id,
     logIn: logIn,
     openSocketIo: openSocketIo,
+    loadRootNodeFromCommit: loadRootNodeFromCommit,
+    loadNode: loadNode,
+
     storageUtil: storageUtil,
     SEED_DIR: path.join(__dirname, '../seeds/'),
     STORAGE_CONSTANTS: STORAGE_CONSTANTS

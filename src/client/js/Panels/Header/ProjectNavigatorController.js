@@ -13,6 +13,7 @@ define([
     'js/Dialogs/Commit/CommitDialog',
     'js/Dialogs/Merge/MergeDialog',
     'js/Dialogs/ProjectRepository/ProjectRepositoryDialog',
+    'js/Dialogs/Branches/BranchesDialog',
     'common/storage/util',
     'isis-ui-components/simpleDialog/simpleDialog',
     'text!js/Dialogs/Projects/templates/DeleteDialogTemplate.html',
@@ -25,6 +26,7 @@ define([
              CommitDialog,
              MergeDialog,
              ProjectRepositoryDialog,
+             BranchesDialog,
              StorageUtil,
              ConfirmDialog,
              DeleteDialogTemplate,
@@ -483,7 +485,22 @@ define([
             };
 
             showAllBranches = function (data) {
-                self.logger.error('showAllBranches: gmeClient version is not implemented yet.', data);
+                var prd;
+                if (self.gmeClient.getActiveProjectId() === data.projectId) {
+                    prd = new BranchesDialog(self.gmeClient);
+                    prd.show();
+                } else {
+                    self.selectProject({projectId: projectId}, function (err) {
+                        var dialog = new BranchesDialog(self.gmeClient);
+
+                        if (err) {
+                            // TODO: handle errors
+                            return;
+                        }
+
+                        dialog.show();
+                    });
+                }
             };
         } else {
             // test version
@@ -562,7 +579,7 @@ define([
                     totalItems: 20,
                     items: [],
                     showAllItems: function () {
-                        showHistory({projectId: projectId});
+                        showAllBranches({projectId: projectId});
                     }
                 }
             ],
@@ -660,7 +677,7 @@ define([
                 self.gmeClient.getExportProjectBranchUrl(data.projectId,
                     data.branchId, data.projectId + '_' + data.branchId, function (err, url) {
                         if (!err && url) {
-                            saveToDisk(url);
+                            saveToDisk.saveUrlToDisk(url);
                         } else {
                             self.logger.error('Failed to get project export url for', data);
                         }

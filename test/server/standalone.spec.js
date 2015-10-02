@@ -144,10 +144,10 @@ describe('standalone server', function () {
             //{code: 200, url: '/rest/unknown'},
             //{code: 200, url: '/rest/does_not_exist'},
             //{code: 200, url: '/rest/help'},
-            {code: 200, url: '/listAllDecorators'},
-            {code: 200, url: '/listAllPlugins'},
-            {code: 200, url: '/listAllVisualizerDescriptors'},
-            {code: 200, url: '/listAllSeeds'},
+            {code: 200, url: '/api/decorators'},
+            {code: 200, url: '/api/plugins'},
+            {code: 200, url: '/api/visualizers'},
+            {code: 200, url: '/api/seeds'},
 
             //{code: 401, url: '/login/client/fail'},
 
@@ -172,6 +172,11 @@ describe('standalone server', function () {
             {code: 404, url: '/does_not_exist.js'},
             {code: 404, url: '/asdf'},
 
+            //excluded extlib paths.
+            {code: 200, url: '/extlib/config/index.js'},
+            {code: 403, url: '/extlib/config/config.default.js'},
+            {code: 403, url: '/extlib/someCertificate.pem'},
+
             //{code: 410, url: '/getToken'},
             //{code: 410, url: '/checktoken/does_not_exist'},
 
@@ -193,16 +198,17 @@ describe('standalone server', function () {
             {code: 200, url: '/file.svg', redirectUrl: '/login'},
             {code: 200, url: '/file.json', redirectUrl: '/login'},
             {code: 200, url: '/file.map', redirectUrl: '/login'},
-            {code: 200, url: '/listAllPlugins', redirectUrl: '/login'},
-            {code: 200, url: '/listAllDecorators', redirectUrl: '/login'},
-            {code: 200, url: '/listAllVisualizerDescriptors', redirectUrl: '/login'},
 
             // should allow access without auth
             {code: 200, url: '/lib/require/require.min.js'},
             {code: 200, url: '/plugin/PluginResult.js'},
             {code: 200, url: '/common/storage/browserstorage.js'},
             {code: 200, url: '/common/storage/constants.js'},
-            {code: 200, url: '/common/blob/BlobClient.js'}
+            {code: 200, url: '/common/blob/BlobClient.js'},
+
+            {code: 401, url: '/api/plugins'},
+            {code: 401, url: '/api/decorators'},
+            {code: 401, url: '/api/visualizers'}
         ]
     }, {
         type: 'https',
@@ -438,7 +444,6 @@ describe('standalone server', function () {
                             {
                                 query: 'webGMESessionId=' + /webgmeSid=s:([^;]+)\./.exec(
                                     decodeURIComponent(socketReq.cookies))[1],
-                                transports: gmeConfig.socketIO.transports,
                                 multiplex: false
                             });
 

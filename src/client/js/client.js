@@ -18,7 +18,7 @@ define([
     'js/client/gmeNodeGetter',
     'js/client/gmeNodeSetter',
     'common/core/users/serialization',
-    'js/client/addon'
+    'blob/BlobClient'
 ], function (Logger,
              Storage,
              EventDispatcher,
@@ -32,7 +32,7 @@ define([
              getNode,
              getNodeSetters,
              Serialization,
-             AddOn) {
+             BlobClient) {
     'use strict';
 
     function Client(gmeConfig) {
@@ -63,12 +63,27 @@ define([
                 inTransaction: false,
                 msg: '',
                 gHash: 0,
-                loadError: null
+                loadError: null,
+                ongoingTerritoryUpdateCounter: 0,
+                ongoingLoadPatternsCounter: 0,
+                pendingTerritoryUpdatePatterns: {},
+                loadingStatus: null,
+                inLoading: false,
+                loading: {
+                    rootHash: null,
+                    commitHash: null,
+                    next: null
+                }
+
             },
+            blobClient,
             monkeyPatchKey,
             nodeSetterFunctions,
-            addOnFunctions = new AddOn(state, storage, logger, gmeConfig);
+        //addOnFunctions = new AddOn(state, storage, logger, gmeConfig),
+            loadPatternThrottled = TASYNC.throttle(loadPattern, 1); //magic number could be fine-tuned
+        //loadPatternThrottled = loadPattern; //magic number could be fine-tuned
 
+        blobClient = new BlobClient();
         EventDispatcher.call(this);
 
         this.CONSTANTS = CONSTANTS;
@@ -264,6 +279,29 @@ define([
             }
         }
 
+        function checkMetaNameCollision(core, rootNode) {
+            var names = [],
+                nodes = core.getAllMetaNodes(rootNode),
+                i,
+                keys = Object.keys(nodes || {}),
+                name;
+            for (i = 0; i < keys.length; i += 1) {
+                name = core.getAttribute(nodes[keys[i]], 'name');
+                if (names.indexOf(name) === -1) {
+                    names.push(name);
+                } else {
+                    self.dispatchEvent(CONSTANTS.NOTIFICATION, {
+                        type: 'META',
+                        severity: 'error',
+                        message: 'Duplicate name on META level: \'' + name + '\'',
+                        hint: 'Rename one of the objects'
+                    });
+                }
+            }
+
+        }
+
+
         nodeSetterFunctions = getNodeSetters(logger, state, saveRoot, storeNode);
 
         for (monkeyPatchKey in nodeSetterFunctions) {
@@ -284,6 +322,25 @@ define([
                 if (connectionState === CONSTANTS.STORAGE.CONNECTED) {
                     //N.B. this event will only be triggered once.
                     self.dispatchEvent(CONSTANTS.NETWORK_STATUS_CHANGED, connectionState);
+                    storage.webSocket.addEventListener(CONSTANTS.STORAGE.BRANCH_ROOM_SOCKETS,
+                        function (emitter, eventData) {
+                            var notification = {
+                                severity: 'INFO',
+                                message: ''
+                            };
+                            if (state.project && state.project.projectId === eventData.projectId &&
+                                state.branchName === eventData.branchName) {
+                                if (eventData.currNbrOfSockets > eventData.prevNbrOfSockets) {
+                                    notification.message = 'Another socket joined your branch [' +
+                                        eventData.currNbrOfSockets + ']';
+                                } else {
+                                    notification.message = 'A socket disconnected from your branch [' +
+                                        eventData.currNbrOfSockets + ']';
+                                }
+                                self.dispatchEvent(CONSTANTS.NOTIFICATION, notification);
+                            }
+                        }
+                    );
                     reLaunchUsers();
                     callback(null);
                 } else if (connectionState === CONSTANTS.STORAGE.DISCONNECTED) {
@@ -460,13 +517,8 @@ define([
 
                 cleanUsersTerritories();
                 self.dispatchEvent(CONSTANTS.PROJECT_CLOSED, projectId);
-                addOnFunctions.stopRunningAddOns(function (err) {
-                    if (err) {
-                        logger.error('Errors stopping addOns when closeProject, (ignoring)', err);
-                    }
 
-                    callback(null);
-                });
+                callback(null);
             });
         }
 
@@ -521,18 +573,12 @@ define([
                 );
             }
 
-            addOnFunctions.stopRunningAddOns(function (err) {
-                if (err) {
-                    logger.error('Errors stopping addOns when selectBranch (ignoring)', err);
-                }
-
-                if (prevBranchName !== null) {
-                    logger.debug('Branch was open, closing it first', prevBranchName);
-                    storage.closeBranch(state.project.projectId, prevBranchName, openBranch);
-                } else {
-                    openBranch(null);
-                }
-            });
+            if (prevBranchName !== null) {
+                logger.debug('Branch was open, closing it first', prevBranchName);
+                storage.closeBranch(state.project.projectId, prevBranchName, openBranch);
+            } else {
+                openBranch(null);
+            }
         };
 
         this.selectCommit = function (commitHash, callback) {
@@ -583,31 +629,26 @@ define([
                 });
             }
 
-            addOnFunctions.stopRunningAddOns(function (err) {
-                if (err) {
-                    logger.error('Errors stopping addOns when selectCommit (ignoring)', err);
-                }
-
-                if (state.branchName !== null) {
-                    logger.debug('Branch was open, closing it first', state.branchName);
-                    prevBranchName = state.branchName;
-                    state.branchName = null;
-                    storage.closeBranch(state.project.projectId, prevBranchName, openCommit);
-                } else {
-                    openCommit(null);
-                }
-            });
+            if (state.branchName !== null) {
+                logger.debug('Branch was open, closing it first', state.branchName);
+                prevBranchName = state.branchName;
+                state.branchName = null;
+                storage.closeBranch(state.project.projectId, prevBranchName, openCommit);
+            } else {
+                openCommit(null);
+            }
         };
 
-        function getBranchStatusHandler () {
+        function getBranchStatusHandler() {
             return function (branchStatus, commitQueue, updateQueue) {
                 logger.debug('branchStatus changed', branchStatus, commitQueue, updateQueue);
                 logState('debug', 'branchStatus');
                 state.branchStatus = branchStatus;
                 self.dispatchEvent(CONSTANTS.BRANCH_STATUS_CHANGED, {
-                    status: branchStatus,
-                    commitQueue: commitQueue,
-                    updateQueue: updateQueue}
+                        status: branchStatus,
+                        commitQueue: commitQueue,
+                        updateQueue: updateQueue
+                    }
                 );
             };
         }
@@ -1008,6 +1049,23 @@ define([
             return getNode(nodePath, logger, state, self.meta, storeNode);
         };
 
+        this.getAllMetaNodes = function () {
+            if (state && state.core && state.nodes && state.nodes[ROOT_PATH]) {
+                var metaNodes = state.core.getAllMetaNodes(state.nodes[ROOT_PATH].node),
+                    gmeNodes = [],
+                    keys = Object.keys(metaNodes || {}),
+                    i;
+
+                for (i = 0; i < keys.length; i += 1) {
+                    gmeNodes.push(this.getNode(storeNode(metaNodes[keys[i]]), logger, state, self.meta, storeNode));
+                }
+
+                return gmeNodes;
+            }
+
+            return [];
+        };
+
         function getStringHash(/* node */) {
             //TODO there is a memory issue with the huge strings so we have to replace it with something
             state.gHash += 1;
@@ -1147,7 +1205,7 @@ define([
                         callback(error);
                     }
                 };
-            state.metaNodes[path] = node;
+
             if (!nodesSoFar[path]) {
                 nodesSoFar[path] = {node: node, incomplete: true, basic: true, hash: getStringHash(node)};
             }
@@ -1172,6 +1230,13 @@ define([
         }
 
         function loadPattern(core, id, pattern, nodesSoFar, callback) {
+            //console.log('LP',id,pattern);
+            //var _callback = callback;
+            //callback = function(error){
+            //    console.log('LPF',id,pattern);
+            //    _callback(error);
+            //};
+
             var base = null,
                 baseLoaded = function () {
                     if (pattern.children && pattern.children > 0) {
@@ -1186,17 +1251,15 @@ define([
                 base = nodesSoFar[id].node;
                 baseLoaded();
             } else {
-                base = null;
-                if (state.loadNodes[ROOT_PATH]) {
-                    base = state.loadNodes[ROOT_PATH].node;
-                } else if (state.nodes[ROOT_PATH]) {
-                    base = state.nodes[ROOT_PATH].node;
+                if (!nodesSoFar[ROOT_PATH]) {
+                    logger.error('pattern cannot be loaded if there is no root!!!');
                 }
+                base = nodesSoFar[ROOT_PATH].node;
+
                 core.loadByPath(base, id, function (err, node) {
                     var path;
                     if (!err && node && !core.isEmpty(node)) {
                         path = core.getPath(node);
-                        state.metaNodes[path] = node;
                         if (!nodesSoFar[path]) {
                             nodesSoFar[path] = {
                                 node: node,
@@ -1235,131 +1298,6 @@ define([
                 }
             }
             return ordered;
-        }
-
-        function loadRoot(newRootHash, callback) {
-            //with the newer approach we try to optimize a bit the mechanism of the loading and
-            // try to get rid of the parallelism behind it
-            var patterns = {},
-                orderedPatternIds = [],
-                error = null,
-                i,
-                j,
-                keysi,
-                keysj;
-
-            state.loadNodes = {};
-            state.loadError = 0;
-
-            //gathering the patterns
-            keysi = Object.keys(state.users);
-            for (i = 0; i < keysi.length; i++) {
-                keysj = Object.keys(state.users[keysi[i]].PATTERNS);
-                for (j = 0; j < keysj.length; j++) {
-                    if (patterns[keysj[j]]) {
-                        //we check if the range is bigger for the new definition
-                        if (patterns[keysj[j]].children < state.users[keysi[i]].PATTERNS[keysj[j]].children) {
-                            patterns[keysj[j]].children = state.users[keysi[i]].PATTERNS[keysj[j]].children;
-                        }
-                    } else {
-                        patterns[keysj[j]] = state.users[keysi[i]].PATTERNS[keysj[j]];
-                    }
-                }
-            }
-            //getting an ordered key list
-            orderedPatternIds = Object.keys(patterns);
-            orderedPatternIds = orderStringArrayByElementLength(orderedPatternIds);
-
-
-            //and now the one-by-one loading
-            state.core.loadRoot(newRootHash, function (err, root) {
-                var fut,
-                    _loadPattern;
-
-                ASSERT(err || root);
-
-                state.rootObject = root;
-
-                error = error || err;
-                if (!err) {
-                    addOnFunctions.updateRunningAddOns(root)
-                        .then(function () {
-                            state.loadNodes[state.core.getPath(root)] = {
-                                node: root,
-                                incomplete: true,
-                                basic: true,
-                                hash: getStringHash(root)
-                            };
-                            state.metaNodes[state.core.getPath(root)] = root;
-                            if (orderedPatternIds.length === 0 && Object.keys(state.users) > 0) {
-                                //we have user, but they do not interested in any object -> let's relaunch them :D
-                                callback(null);
-                                reLaunchUsers();
-                            } else {
-                                _loadPattern = TASYNC.throttle(TASYNC.wrap(loadPattern), 1);
-                                fut = TASYNC.lift(
-                                    orderedPatternIds.map(function (pattern /*, index */) {
-                                        return TASYNC.apply(_loadPattern,
-                                            [state.core, pattern, patterns[pattern], state.loadNodes],
-                                            this);
-                                    }));
-                                TASYNC.unwrap(function () {
-                                    return fut;
-                                })(callback);
-                            }
-                        })
-                        .catch(function (err) {
-                            callback(err);
-                        });
-                } else {
-                    callback(err);
-                }
-            });
-        }
-
-        //this is just a first brute implementation it needs serious optimization!!!
-        function loading(newRootHash, newCommitHash, callback) {
-            var firstRoot = !state.nodes[ROOT_PATH],
-                originatingRootHash = state.nodes[ROOT_PATH] ? state.core.getHash(state.nodes[ROOT_PATH].node) : null,
-                finalEvents = function () {
-                    var modifiedPaths,
-                        i;
-                    logger.debug('firing finalEvents from loading for new rootHash', newRootHash);
-                    modifiedPaths = getModifiedNodes(state.loadNodes);
-                    state.nodes = state.loadNodes;
-                    state.loadNodes = {};
-                    // We have now loaded the new root from the commit, update the state
-                    state.rootHash = newRootHash;
-                    state.commitHash = newCommitHash;
-
-                    for (i in state.users) {
-                        if (state.users.hasOwnProperty(i)) {
-                            userEvents(i, modifiedPaths);
-                        }
-                    }
-                    callback(null);
-                };
-            logger.debug('loading originatingRootHash, newRootHash', originatingRootHash, newRootHash);
-
-            callback = callback || function (/*err*/) {
-                };
-
-
-            loadRoot(newRootHash, function (err) {
-                if (err) {
-                    state.rootHash = null;
-                    callback(err);
-                } else {
-                    if (firstRoot ||
-                        state.core.getHash(state.nodes[ROOT_PATH].node) === originatingRootHash) {
-                        finalEvents();
-                    } else {
-                        // This relies on the fact that loading is synchronous for local updates.
-                        logger.warn('Modifications were done during loading - load aborted.');
-                        callback(null, true);
-                    }
-                }
-            });
         }
 
         this.startTransaction = function (msg) {
@@ -1409,66 +1347,231 @@ define([
         }
 
         function _updateTerritoryAllDone(guid, patterns, error) {
+
+            logger.debug('updateTerritory related loads finished', {
+                metadata: {
+                    userId: guid, patterns: patterns, error: error
+                }
+            });
+            refreshMetaNodes(state.nodes, state.nodes);
+
             if (state.users[guid]) {
-                state.users[guid].PATTERNS = JSON.parse(JSON.stringify(patterns));
+                state.users[guid].PATTERNS = COPY(patterns);
                 if (!error) {
                     userEvents(guid, []);
                 }
             }
         }
 
+        function canSwitchStates() {
+            if (state.inLoading && state.ongoingTerritoryUpdateCounter === 0 &&
+                state.ongoingLoadPatternsCounter === 0) {
+                return true;
+            }
+            return false;
+        }
+
+        function loadingPatternFinished(err) {
+            state.loadingStatus = state.loadingStatus || err;
+            state.ongoingLoadPatternsCounter -= 1;
+
+            if (canSwitchStates()) {
+                switchStates();
+            }
+        }
+
         this.updateTerritory = function (guid, patterns) {
-            var missing,
-                error,
-                patternLoaded,
-                i;
-
-            if (state.users[guid]) {
-                if (state.project) {
-                    if (state.nodes[ROOT_PATH]) {
-                        //TODO: this has to be optimized
-                        missing = 0;
-                        error = null;
-
-                        patternLoaded = function (err) {
-                            error = error || err;
-                            missing -= 1;
-                            if (missing === 0) {
-                                //allDone();
-                                _updateTerritoryAllDone(guid, patterns, error);
-                            }
-                        };
-
-                        for (i in patterns) {
-                            missing += 1;
+            var loadRequestCounter = 0,
+                updateRequestId = GUID(),
+                error = null,
+                keys = Object.keys(patterns || {}),
+                i,
+                patternLoaded = function (err) {
+                    error = error || err;
+                    if (--loadRequestCounter === 0) {
+                        delete state.pendingTerritoryUpdatePatterns[updateRequestId];
+                        _updateTerritoryAllDone(guid, patterns, error);
+                        state.ongoingTerritoryUpdateCounter -= 1;
+                        if (state.ongoingTerritoryUpdateCounter < 0) {
+                            logger.error('patternLoaded callback have been called multiple times!!');
+                            state.ongoingTerritoryUpdateCounter = 0; //FIXME
                         }
-                        if (missing > 0) {
-                            for (i in patterns) {
-                                if (patterns.hasOwnProperty(i)) {
-                                    loadPattern(state.core, i, patterns[i], state.nodes, patternLoaded);
-                                }
-                            }
-                        } else {
-                            //allDone();
-                            _updateTerritoryAllDone(guid, patterns, error);
-                        }
-                    } else {
-                        //something funny is going on
-                        if (state.loadNodes[ROOT_PATH]) {
-                            //probably we are in the loading process,
-                            // so we should redo this update when the loading finishes
-                            //setTimeout(updateTerritory, 100, guid, patterns);
-                        } else {
-                            //root is not in nodes and has not even started to load it yet...
-                            state.users[guid].PATTERNS = JSON.parse(JSON.stringify(patterns));
+                        if (canSwitchStates()) {
+                            switchStates();
                         }
                     }
+                };
+
+            logger.debug('updatingTerritory', {
+                metadata: {
+                    userId: guid,
+                    patterns: patterns
+                }
+            });
+
+            if (!state.nodes[ROOT_PATH]) {
+                if (state.users[guid]) {
+                    logger.debug('early updateTerritory for user[' + guid + ']. No loaded project state yet.');
+                    state.users[guid].PATTERNS = COPY(patterns);
+                }
+                return;
+            }
+
+            //empty territory check
+            if (keys.length === 0) {
+                _updateTerritoryAllDone(guid, patterns, null);
+                return;
+            }
+
+            state.ongoingTerritoryUpdateCounter += 1;
+
+            //first we have to set the internal counter as the actual load can get synchronous :(
+            loadRequestCounter = keys.length;
+
+
+            for (i = 0; i < keys.length; i += 1) {
+                if (state.inLoading) {
+                    state.ongoingLoadPatternsCounter += 1;
+                    loadPatternThrottled(state.core,
+                        keys[i], patterns[keys[i]], state.loadNodes, loadingPatternFinished);
                 } else {
-                    //we should update the patterns, but that is all
-                    state.users[guid].PATTERNS = JSON.parse(JSON.stringify(patterns));
+                    //we should save the patterns to a pending directory
+                    state.pendingTerritoryUpdatePatterns[updateRequestId] = patterns;
+                }
+                loadPatternThrottled(state.core, keys[i], patterns[keys[i]], state.nodes, patternLoaded);
+            }
+
+        };
+
+        function refreshMetaNodes(oldSource, newSource) {
+            var pathsToRemove = [],
+                i,
+                oldPaths = Object.keys(oldSource),
+                newPaths = Object.keys(newSource);
+
+            for (i = 0; i < oldPaths.length; i += 1) {
+                if (newPaths.indexOf(oldPaths[i]) === -1) {
+                    pathsToRemove.push(oldPaths[i]);
                 }
             }
-        };
+
+            for (i = 0; i < newPaths.length; i += 1) {
+                state.metaNodes[newPaths[i]] = newSource[newPaths[i]].node;
+            }
+
+            for (i = 0; i < pathsToRemove.length; i += 1) {
+                delete state.metaNodes[pathsToRemove[i]];
+            }
+        }
+
+        function switchStates() {
+            //it is safe now to move the loadNodes into nodes,
+            // refresh the metaNodes and generate events - all in a synchronous manner!!!
+            var modifiedPaths,
+                i;
+
+            logger.debug('switching project state [C#' +
+                state.commitHash + ']->[C#' + state.loading.commitHash + '] : [R#' +
+                state.rootHash + ']->[R#' + state.loading.rootHash + ']');
+            refreshMetaNodes(state.nodes, state.loadNodes);
+
+            modifiedPaths = getModifiedNodes(state.loadNodes);
+            state.nodes = state.loadNodes;
+            state.loadNodes = {};
+
+            state.inLoading = false;
+            state.rootHash = state.loading.rootHash;
+            state.loading.rootHash = null;
+            state.commitHash = state.loading.commitHash;
+            state.loading.commitHash = null;
+
+            checkMetaNameCollision(state.core, state.nodes[ROOT_PATH].node);
+
+            for (i in state.users) {
+                if (state.users.hasOwnProperty(i)) {
+                    userEvents(i, modifiedPaths);
+                }
+            }
+
+            if (state.loadingStatus) {
+                state.loading.next(state.loadingStatus);
+            } else {
+                state.loading.next(null);
+            }
+        }
+
+        function loading(newRootHash, newCommitHash, callback) {
+            var i, j,
+                userIds,
+                patternPaths,
+                patternsToLoad = [];
+
+            if (state.ongoingLoadPatternsCounter !== 0) {
+                throw new Error('at the start of loading counter should bee zero!!! [' +
+                    state.ongoingLoadPatternsCounter + ']');
+            }
+
+            state.loadingStatus = null;
+            state.loadNodes = {};
+            state.loading.rootHash = newRootHash;
+            state.loading.commitHash = newCommitHash;
+            state.loading.next = callback;
+
+            state.core.loadRoot(state.loading.rootHash, function (err, root) {
+                if (err) {
+                    return state.loading.next(err);
+                }
+
+                state.inLoading = true;
+                state.loadNodes[state.core.getPath(root)] = {
+                    node: root,
+                    incomplete: true,
+                    basic: true,
+                    hash: getStringHash(root)
+                };
+
+
+                //we first only set the counter of patterns but we also generate a completely separate pattern queue
+                //as we cannot be sure if all the users will remain at the point of giving the actual load command!!!
+                userIds = Object.keys(state.users);
+                for (i = 0; i < userIds.length; i += 1) {
+                    state.ongoingLoadPatternsCounter += Object.keys(state.users[userIds[i]].PATTERNS || {}).length;
+                    patternPaths = Object.keys(state.users[userIds[i]].PATTERNS || {});
+                    for (j = 0; j < patternPaths.length; j += 1) {
+                        patternsToLoad.push({
+                            id: patternPaths[j],
+                            pattern: COPY(state.users[userIds[i]].PATTERNS[patternPaths[j]])
+                        });
+                    }
+                }
+                userIds = Object.keys(state.pendingTerritoryUpdatePatterns);
+                for (i = 0; i < userIds.length; i += 1) {
+                    state.ongoingLoadPatternsCounter +=
+                        Object.keys(state.pendingTerritoryUpdatePatterns[userIds[i]] || {}).length;
+                    patternPaths = Object.keys(state.pendingTerritoryUpdatePatterns[userIds[i]] || {});
+                    for (j = 0; j < patternPaths.length; j += 1) {
+                        patternsToLoad.push({
+                            id: patternPaths[j],
+                            pattern: COPY(state.pendingTerritoryUpdatePatterns[userIds[i]][patternPaths[j]])
+                        });
+                    }
+                }
+
+                //empty load check
+                if (state.ongoingLoadPatternsCounter === 0) {
+                    if (canSwitchStates()) {
+                        switchStates();
+                        reLaunchUsers();
+                    }
+                    return;
+                }
+
+                for (i = 0; i < patternsToLoad.length; i += 1) {
+                    loadPatternThrottled(state.core,
+                        patternsToLoad[i].id, patternsToLoad[i].pattern, state.loadNodes, loadingPatternFinished);
+                }
+            });
+        }
 
         function cleanUsersTerritories() {
             //look out as the user can remove itself at any time!!!
@@ -1573,6 +1676,65 @@ define([
             });
         };
 
+        //meta rules checking
+        /**
+         *
+         * @param {string[]} nodePaths - Paths to nodes of which to check.
+         * @param includeChildren
+         * @param callback
+         */
+        this.checkMetaRules = function (nodePaths, includeChildren, callback) {
+            var parameters = {
+                command: 'checkConstraints',
+                checkType: 'META', //TODO this should come from a constant
+                includeChildren: includeChildren,
+                nodePaths: nodePaths,
+                commitHash: state.commitHash,
+                projectId: state.project.projectId
+            };
+
+            storage.simpleRequest(parameters, function (err, result) {
+                if (err) {
+                    logger.error(err);
+                }
+
+                self.dispatchEvent(CONSTANTS.META_RULES_RESULT, result);
+
+                if (callback) {
+                    callback(err, result);
+                }
+            });
+        };
+
+        /**
+         *
+         * @param {string[]} nodePaths - Paths to nodes of which to check.
+         * @param includeChildren
+         * @param callback
+         */
+        this.checkCustomConstraints = function (nodePaths, includeChildren, callback) {
+            var parameters = {
+                command: 'checkConstraints',
+                checkType: 'CUSTOM', //TODO this should come from a constant
+                includeChildren: includeChildren,
+                nodePaths: nodePaths,
+                commitHash: state.commitHash,
+                projectId: state.project.projectId
+            };
+
+            storage.simpleRequest(parameters, function (err, result) {
+                if (err) {
+                    logger.error(err);
+                }
+
+                self.dispatchEvent(CONSTANTS.CONSTRAINT_RESULT, result);
+
+                if (callback) {
+                    callback(err, result);
+                }
+            });
+        };
+
         //seed
         this.seedProject = function (parameters, callback) {
             logger.debug('seeding project', parameters);
@@ -1599,7 +1761,7 @@ define([
                         logger.error('getExportProjectBranchUrl failed with error', err);
                         callback(err);
                     } else {
-                        callback(null, result.file.url);
+                        callback(null, blobClient.getDownloadURL(result.file.hash));
                     }
                 });
             } else {
@@ -1612,6 +1774,17 @@ define([
         };
 
         //library functions
+        /**
+         * Request an export of the given library.
+         * A library can be any sub-tree of the project (the whole project as well).
+         * The export will only keep the internal relation, and it just notices the targets of any
+         * outgoing relation. If those outgoing relations will not present in the source, the result
+         * could be faulty.
+         * @param {string} libraryRootPath - the absolute path of the root node of the library.
+         * @param {string} filename - the requested output name of the library.
+         * @param {funciton} callback - if successful, the result is a URL where the exported format of the library
+         * can be found.
+         */
         this.getExportLibraryUrl = function (libraryRootPath, filename, callback) {
             var command = {};
             command.command = 'exportLibrary';
@@ -1624,7 +1797,7 @@ define([
                         logger.error('getExportLibraryUrl failed with error', err);
                         callback(err);
                     } else {
-                        callback(null, result.file.url);
+                        callback(null, blobClient.getDownloadURL(result.file.hash));
                     }
                 });
             } else {
@@ -1632,6 +1805,16 @@ define([
             }
         };
 
+        /**
+         * Updates a library.
+         * 1, it removes the nodes that are not exists in the new library
+         * 2, adds the nodes that only exists in the new library
+         * 3, updates all properties and relations of the nodes in the library
+         * (it keeps all incoming relations, so the instance models will updates their state automatically)
+         * @param {string} libraryRootPath - the absolute path of the root node of the library.
+         * @param {object} newLibrary - JSON export format of the updated library.
+         * @param callback
+         */
         this.updateLibrary = function (libraryRootPath, newLibrary, callback) {
             Serialization.import(state.core, state.nodes[libraryRootPath].node, newLibrary, function (err, log) {
                 if (err) {
@@ -1642,6 +1825,12 @@ define([
             });
         };
 
+        /**
+         * Imports a library into the project under the given parent.
+         * @param {string} libraryParentPath - absolute path of the parent node of the library.
+         * @param {object} newLibrary - JSON export format of the library.
+         * @param {function} callback
+         */
         this.addLibrary = function (libraryParentPath, newLibrary, callback) {
             self.startTransaction('creating library as a child of ' + libraryParentPath);
             var libraryRoot = self.createChild({
@@ -1719,16 +1908,7 @@ define([
             return filteredNames;
         };
 
-        //addOn
-        this.getRunningAddOnNames = addOnFunctions.getRunningAddOnNames;
-        this.addOnsAllowed = gmeConfig.addOn.enable === true;
-
-        //constraint
-        this.validateProjectAsync = addOnFunctions.validateProjectAsync;
-        this.validateModelAsync = addOnFunctions.validateModelAsync;
-        this.validateNodeAsync = addOnFunctions.validateNodeAsync;
-        this.setValidationCallback = addOnFunctions.setValidationCallback;
-
+        // Constraints
         this.setConstraint = function (path, name, constraintObj) {
             if (state.core && state.nodes[path] && typeof state.nodes[path].node === 'object') {
                 state.core.setConstraint(state.nodes[path].node, name, constraintObj);
@@ -1775,6 +1955,8 @@ define([
                 }
             });
         };
+
+        this.gmeConfig = gmeConfig;
     }
 
 

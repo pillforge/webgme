@@ -27,7 +27,7 @@ define([
         function wrapError(callback) {
             return function () {
                 if (typeof arguments[0] === 'string') {
-                    callback(new Error(arguments[0]));
+                    callback(new Error(arguments[0]), arguments[1]); // Add second argument for e.g. pluginResults
                 } else {
                     callback.apply(null, arguments);
                 }
@@ -117,6 +117,11 @@ define([
                 self.socket.on(CONSTANTS.BRANCH_UPDATED, function (data) {
                     logger.debug('BRANCH_UPDATED event', {metadata: data});
                     self.dispatchEvent(self.getBranchUpdateEventName(data.projectId, data.branchName), data);
+                });
+
+                self.socket.on(CONSTANTS.BRANCH_ROOM_SOCKETS, function (data) {
+                    logger.debug('BRANCH_ROOM_SOCKETS event', {metadata: data});
+                    self.dispatchEvent(CONSTANTS.BRANCH_ROOM_SOCKETS, data);
                 });
             });
         };

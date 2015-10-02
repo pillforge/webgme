@@ -1,6 +1,8 @@
 /*globals define*/
 /*jshint browser: true*/
 /**
+ * THIS FILE IS CURRENTLY DEPRECATED, IN THE FUTURE IT WILL CONTAIN METHODS TO QUERY ADDONS
+ * AND HANDLED NOTIFICATIONS FROM THEM.
  * @author kecso / https://github.com/kecso
  */
 define(['q'], function (Q) {
@@ -8,9 +10,7 @@ define(['q'], function (Q) {
 
     function AddOn(state, storage, logger__, gmeConfig) {
         var _addOns = {},
-            logger = logger__.fork('addOn'),
-            _constraintCallback = function () {
-            };
+            logger = logger__.fork('addOn');
 
         function startAddOn(name, callback) {
             var deferred = Q.defer();
@@ -67,7 +67,7 @@ define(['q'], function (Q) {
             var deferred = Q.defer();
             if (_addOns[name] && _addOns[name] !== 'loading') {
                 // FIXME: addOn state should be stopping
-                // TODO: connectedworkerStop should come from constants!!
+                // TODO: connectedworkerStop should come from constants
                 storage.simpleQuery(_addOns[name], {command: 'connectedworkerStop'}, function (err) {
                     if (err) {
                         deferred.reject(err);
@@ -142,55 +142,11 @@ define(['q'], function (Q) {
             return names;
         }
 
-        //core addOns
-
-        //constraint
-        function validateProjectAsync(callback) {
-            callback = callback || _constraintCallback || function (/*err, result*/) {
-                };
-            if (_addOns.hasOwnProperty('ConstraintAddOn') && _addOns.ConstraintAddOn !== 'loading') {
-                queryAddOn('ConstraintAddOn', {querytype: 'checkProject'}, callback);
-            } else {
-                callback(new Error('constraint checking is not available'));
-            }
-        }
-
-        function validateModelAsync(path, callback) {
-            callback = callback || _constraintCallback || function (/* err, result */) {
-                };
-            if (_addOns.hasOwnProperty('ConstraintAddOn') && _addOns.ConstraintAddOn !== 'loading') {
-                queryAddOn('ConstraintAddOn', {querytype: 'checkModel', path: path}, callback);
-            } else {
-                callback(new Error('constraint checking is not available'));
-            }
-        }
-
-        function validateNodeAsync(path, callback) {
-            callback = callback || _constraintCallback || function (/* err, result */) {
-                };
-            if (_addOns.hasOwnProperty('ConstraintAddOn') && _addOns.ConstraintAddOn !== 'loading') {
-                queryAddOn('ConstraintAddOn', {querytype: 'checkNode', path: path}, callback);
-            } else {
-                callback(new Error('constraint checking is not available'));
-            }
-        }
-
-        function setValidationCallback(cFunction) {
-            if (typeof cFunction === 'function' || cFunction === null) {
-                _constraintCallback = cFunction;
-            }
-        }
-
-        //core addOns end
-
         return {
             updateRunningAddOns: updateRunningAddOns,
             stopRunningAddOns: stopRunningAddOns,
-            validateProjectAsync: validateProjectAsync,
-            validateModelAsync: validateModelAsync,
-            validateNodeAsync: validateNodeAsync,
-            setValidationCallback: setValidationCallback,
-            getRunningAddOnNames: getRunningAddOnNames
+            getRunningAddOnNames: getRunningAddOnNames,
+            queryAddOn: queryAddOn
         };
     }
 
