@@ -22,6 +22,7 @@ describe('CorePlugins', function () {
         pluginNames = [
             'AddOnGenerator',
             'ConfigurationArtifact',
+            'DecoratorGenerator',
             'ExecutorPlugin',
             'ExportImport',
             'MergeExample',
@@ -29,6 +30,7 @@ describe('CorePlugins', function () {
             'MinimalWorkingExample',
             'PluginGenerator',
             'VisualizerGenerator',
+            'LayoutGenerator',
             'MultipleMainCallbackCalls',
             'PluginForked'
         ],
