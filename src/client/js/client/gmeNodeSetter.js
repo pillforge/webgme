@@ -375,6 +375,21 @@ define([], function () {
             }
 
             msg = msg || 'makePointer(' + id + ',' + name + ',' + to + ')';
+
+            // create children of interface definition
+            var self = this;
+            if (name === 'interface') {
+                var to_node = state.nodes[to].node;
+                var children = state.core.getChildrenPaths(to_node);
+                children.forEach(function (child) {
+                    self.createChild({
+                        parentId: id,
+                        baseId: child
+                    });
+                    msg += ' - addchild: ' + child;
+                });
+            }
+
             saveRoot(msg);
         }
 
