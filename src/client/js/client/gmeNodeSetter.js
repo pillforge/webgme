@@ -366,7 +366,7 @@ define([], function () {
                 });
             }
 
-            _clientGlobal.functions.saveRoot(msg);
+            saveRoot(msg);
         }
 
         function delPointer(path, name, msg) {
